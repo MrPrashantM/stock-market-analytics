@@ -325,7 +325,7 @@ st.markdown(f"""<div class="krow">
 </div>""", unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-T1,T2,T3,T4,T5,T6 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News"])
+T1,T2,T3,T4,T5,T6,T7 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced"])
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TAB 1 — PRICE
@@ -563,6 +563,239 @@ with T5:
                 fb.add_hline(y=0,line_color=BORDER,line_width=1)
                 th(fb,h=300,title="P&L % by Stock")
                 st.plotly_chart(fb,use_container_width=True,config={"displayModeBar":False})
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 7 — ADVANCED
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+with T7:
+
+    # ── Risk Metrics ─────────────────────────────────────────────────────────
+    st.markdown('<div class="slabel">Risk & Performance Metrics</div>', unsafe_allow_html=True)
+
+    returns     = df["Ret"].dropna() / 100
+    daily_mean  = returns.mean()
+    daily_std   = returns.std()
+    trading_days= 252
+
+    # Sharpe Ratio (assuming risk-free rate = 6% for India, 5% for US)
+    rf = 0.06 / trading_days if ".NS" in ticker else 0.05 / trading_days
+    sharpe = (daily_mean - rf) / daily_std * np.sqrt(trading_days) if daily_std > 0 else 0
+
+    # Sortino Ratio (downside deviation only)
+    downside = returns[returns < 0].std()
+    sortino  = (daily_mean - rf) / downside * np.sqrt(trading_days) if downside > 0 else 0
+
+    # Max Drawdown
+    cum_returns  = (1 + returns).cumprod()
+    rolling_max  = cum_returns.cummax()
+    drawdown     = (cum_returns - rolling_max) / rolling_max
+    max_drawdown = drawdown.min() * 100
+
+    # Annualized Return & Volatility
+    ann_return = ((1 + daily_mean) ** trading_days - 1) * 100
+    ann_vol    = daily_std * np.sqrt(trading_days) * 100
+
+    # Calmar Ratio
+    calmar = ann_return / abs(max_drawdown) if max_drawdown != 0 else 0
+
+    # Win Rate
+    win_rate = (returns > 0).mean() * 100
+
+    # VaR (95% confidence)
+    var_95 = returns.quantile(0.05) * 100
+
+    sc = "up" if sharpe > 1 else "wa" if sharpe > 0 else "dn"
+    st.markdown(f"""<div class="krow">
+      <div class="kpi {sc}"><div class="klabel">Sharpe Ratio</div><div class="kval">{sharpe:.2f}</div>
+        <div class="ksub">{"Excellent" if sharpe>2 else "Good" if sharpe>1 else "Average" if sharpe>0 else "Poor"} · Risk-adj return</div></div>
+      <div class="kpi {'up' if sortino>1 else 'wa' if sortino>0 else 'dn'}">
+        <div class="klabel">Sortino Ratio</div><div class="kval">{sortino:.2f}</div>
+        <div class="ksub">Downside risk adjusted</div></div>
+      <div class="kpi dn"><div class="klabel">Max Drawdown</div><div class="kval">{max_drawdown:.1f}%</div>
+        <div class="ksub">Worst peak-to-trough</div></div>
+      <div class="kpi nu"><div class="klabel">Ann. Return</div><div class="kval">{ann_return:+.1f}%</div>
+        <div class="ksub">Annualized</div></div>
+      <div class="kpi wa"><div class="klabel">Ann. Volatility</div><div class="kval">{ann_vol:.1f}%</div>
+        <div class="ksub">Annualized std dev</div></div>
+      <div class="kpi nu"><div class="klabel">Win Rate</div><div class="kval">{win_rate:.1f}%</div>
+        <div class="ksub">Days with +ve return</div></div>
+    </div>""", unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"""<div class="krow">
+          <div class="kpi wa"><div class="klabel">Calmar Ratio</div><div class="kval">{calmar:.2f}</div>
+            <div class="ksub">Return / Max Drawdown</div></div>
+          <div class="kpi dn"><div class="klabel">VaR (95%)</div><div class="kval">{var_95:.2f}%</div>
+            <div class="ksub">Daily worst-case loss</div></div>
+        </div>""", unsafe_allow_html=True)
+
+    # Drawdown chart
+    st.markdown('<div class="slabel">Drawdown Chart</div>', unsafe_allow_html=True)
+    dd_series = drawdown * 100
+    dd_dates  = df["Date"].iloc[len(df) - len(dd_series):]
+
+    fig_dd = go.Figure()
+    fig_dd.add_trace(go.Scatter(
+        x=dd_dates, y=dd_series,
+        fill="tozeroy",
+        fillcolor=f"{'rgba(255,51,85,.15)' if DARK else 'rgba(204,17,51,.1)'}",
+        line=dict(color=RED, width=1.5),
+        name="Drawdown %",
+    ))
+    fig_dd.add_hline(y=max_drawdown, line_color=AMBER, line_dash="dash",
+                     line_width=1, annotation_text=f"Max {max_drawdown:.1f}%",
+                     annotation_font_color=AMBER, annotation_font_size=10)
+    th(fig_dd, h=220, title="Portfolio Drawdown (%)")
+    st.plotly_chart(fig_dd, use_container_width=True, config={"displayModeBar": False})
+
+    # ── Support & Resistance ──────────────────────────────────────────────────
+    st.markdown('<div class="slabel">Support & Resistance Levels</div>', unsafe_allow_html=True)
+
+    def find_sr_levels(df, window=20, n_levels=5):
+        highs  = df["High"].rolling(window, center=True).max()
+        lows   = df["Low"].rolling(window, center=True).min()
+        resist = sorted(highs.dropna().nlargest(n_levels * 3).unique())
+        supp   = sorted(lows.dropna().nsmallest(n_levels * 3).unique())
+        # Cluster nearby levels
+        def cluster(levels, tol=0.015):
+            if not list(levels): return []
+            clustered, group = [], [levels[0]]
+            for lv in levels[1:]:
+                if (lv - group[-1]) / group[-1] < tol:
+                    group.append(lv)
+                else:
+                    clustered.append(np.mean(group))
+                    group = [lv]
+            clustered.append(np.mean(group))
+            return clustered
+        return cluster(supp)[:n_levels], cluster(resist)[-n_levels:]
+
+    supports, resistances = find_sr_levels(df)
+
+    fig_sr = go.Figure()
+    if ct == "Candlestick":
+        fig_sr.add_trace(go.Candlestick(
+            x=df["Date"].tail(120), open=df["Open"].tail(120),
+            high=df["High"].tail(120), low=df["Low"].tail(120), close=df["Close"].tail(120),
+            increasing=dict(line_color=GREEN, fillcolor=GREEN),
+            decreasing=dict(line_color=RED, fillcolor=RED),
+            name="Price", line_width=1, showlegend=False,
+        ))
+    else:
+        fig_sr.add_trace(go.Scatter(
+            x=df["Date"].tail(120), y=df["Close"].tail(120),
+            line=dict(color=ACCENT, width=2), name="Price",
+        ))
+
+    for i, s in enumerate(supports):
+        fig_sr.add_hline(y=s, line_color=GREEN, line_dash="dot", line_width=1.2,
+                         annotation_text=f"S{i+1}: {s:.1f}",
+                         annotation_font_color=GREEN, annotation_font_size=9,
+                         annotation_position="left")
+    for i, r in enumerate(resistances):
+        fig_sr.add_hline(y=r, line_color=RED, line_dash="dot", line_width=1.2,
+                         annotation_text=f"R{i+1}: {r:.1f}",
+                         annotation_font_color=RED, annotation_font_size=9,
+                         annotation_position="right")
+
+    th(fig_sr, h=400, title="Support & Resistance — Last 120 Days",
+       xaxis_rangeslider_visible=False)
+    st.plotly_chart(fig_sr, use_container_width=True, config={"displayModeBar": False})
+
+    # S/R Table
+    sr_rows = []
+    for i, s in enumerate(supports):
+        diff = ((cur - s) / cur * 100)
+        sr_rows.append({"Level": f"Support {i+1}", "Price": round(s,2),
+                        "Distance": f"{diff:+.1f}%", "Type": "🟢 Support"})
+    for i, r in enumerate(resistances):
+        diff = ((r - cur) / cur * 100)
+        sr_rows.append({"Level": f"Resistance {i+1}", "Price": round(r,2),
+                        "Distance": f"{diff:+.1f}%", "Type": "🔴 Resistance"})
+    if sr_rows:
+        st.dataframe(pd.DataFrame(sr_rows), use_container_width=True, hide_index=True)
+
+    # ── Benchmark Comparison ──────────────────────────────────────────────────
+    st.markdown('<div class="slabel">Benchmark Comparison</div>', unsafe_allow_html=True)
+
+    benchmark = "^NSEI" if ".NS" in ticker else "^GSPC"
+    bm_name   = "NIFTY 50" if ".NS" in ticker else "S&P 500"
+
+    with st.spinner(f"Fetching {bm_name}..."):
+        bm_df, _ = fetch(benchmark, period)
+
+    fig_bm = go.Figure()
+    fig_bm.add_trace(go.Scatter(
+        x=df["Date"], y=df["CRet"],
+        line=dict(color=ACCENT, width=2),
+        name=f"{name.split()[0]} ({tot:+.1f}%)",
+    ))
+    if bm_df is not None and not bm_df.empty:
+        bm_ret = bm_df["CRet"].iloc[-1]
+        fig_bm.add_trace(go.Scatter(
+            x=bm_df["Date"], y=bm_df["CRet"],
+            line=dict(color=AMBER, width=2, dash="dash"),
+            name=f"{bm_name} ({bm_ret:+.1f}%)",
+        ))
+        alpha = tot - bm_ret
+        ac = "up" if alpha >= 0 else "dn"; ar5 = "▲" if alpha >= 0 else "▼"
+        st.markdown(f"""<div class="krow">
+          <div class="kpi nu"><div class="klabel">Stock Return</div>
+            <div class="kval">{"▲" if tot>=0 else "▼"} {abs(tot):.1f}%</div></div>
+          <div class="kpi wa"><div class="klabel">{bm_name} Return</div>
+            <div class="kval">{"▲" if bm_ret>=0 else "▼"} {abs(bm_ret):.1f}%</div></div>
+          <div class="kpi {ac}"><div class="klabel">Alpha</div>
+            <div class="kval">{ar5} {abs(alpha):.1f}%</div>
+            <div class="ksub">{"Outperforming" if alpha>=0 else "Underperforming"} market</div></div>
+        </div>""", unsafe_allow_html=True)
+
+    fig_bm.add_hline(y=0, line_color=BORDER, line_width=1)
+    th(fig_bm, h=350, title=f"{name.split()[0]} vs {bm_name} — {period}")
+    st.plotly_chart(fig_bm, use_container_width=True, config={"displayModeBar": False})
+
+    # ── Export Data ───────────────────────────────────────────────────────────
+    st.markdown('<div class="slabel">Export Data</div>', unsafe_allow_html=True)
+
+    export_cols = ["Date","Open","High","Low","Close","Volume",
+                   "MA20","MA50","MA200","RSI","MACD","MACDs","V20","CRet"]
+    df_export = df[[c for c in export_cols if c in df.columns]].copy()
+    df_export["Date"] = df_export["Date"].astype(str)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        csv_data = df_export.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="⬇️ Download as CSV",
+            data=csv_data,
+            file_name=f"{ticker}_{period}_data.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    with c2:
+        import io
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            df_export.to_excel(writer, index=False, sheet_name="Price Data")
+            # Risk metrics sheet
+            risk_df = pd.DataFrame([{
+                "Metric": "Sharpe Ratio",     "Value": round(sharpe, 3)},
+                {"Metric": "Sortino Ratio",   "Value": round(sortino, 3)},
+                {"Metric": "Max Drawdown %",  "Value": round(max_drawdown, 2)},
+                {"Metric": "Ann. Return %",   "Value": round(ann_return, 2)},
+                {"Metric": "Ann. Volatility %","Value": round(ann_vol, 2)},
+                {"Metric": "Win Rate %",       "Value": round(win_rate, 2)},
+                {"Metric": "VaR 95% %",        "Value": round(var_95, 3)},
+                {"Metric": "Calmar Ratio",     "Value": round(calmar, 3)},
+            ])
+            risk_df.to_excel(writer, index=False, sheet_name="Risk Metrics")
+        st.download_button(
+            label="⬇️ Download as Excel",
+            data=buf.getvalue(),
+            file_name=f"{ticker}_{period}_analysis.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TAB 6 — NEWS
