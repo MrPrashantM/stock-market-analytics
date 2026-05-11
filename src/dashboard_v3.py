@@ -325,7 +325,7 @@ st.markdown(f"""<div class="krow">
 </div>""", unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-T1,T2,T3,T4,T5 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio"])
+T1,T2,T3,T4,T5,T6 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News"])
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TAB 1 — PRICE
@@ -563,6 +563,131 @@ with T5:
                 fb.add_hline(y=0,line_color=BORDER,line_width=1)
                 th(fb,h=300,title="P&L % by Stock")
                 st.plotly_chart(fb,use_container_width=True,config={"displayModeBar":False})
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 6 — NEWS
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+with T6:
+    st.markdown(f'<div class="slabel">Latest News — {name}</div>', unsafe_allow_html=True)
+
+    # News CSS
+    st.markdown(f"""
+    <style>
+    .news-card {{
+        background:{SURFACE}; border:1px solid {BORDER};
+        border-left:3px solid {ACCENT}; border-radius:0 6px 6px 0;
+        padding:16px 18px; margin-bottom:10px;
+        box-shadow:{"0 2px 8px rgba(0,0,0,0.25)" if DARK else "0 1px 5px rgba(80,80,160,0.07)"};
+    }}
+    .news-card.pos {{ border-left-color:{GREEN}; }}
+    .news-card.neg {{ border-left-color:{RED};   }}
+    .news-card.neu {{ border-left-color:{ACCENT};}}
+    .news-title {{
+        font-family:'Syne',sans-serif; font-size:.95rem;
+        font-weight:600; color:{HEAD}; line-height:1.4; margin-bottom:6px;
+    }}
+    .news-title a {{ color:{HEAD}; text-decoration:none; }}
+    .news-title a:hover {{ color:{ACCENT}; }}
+    .news-meta {{
+        font-family:'IBM Plex Mono',monospace;
+        font-size:.6rem; color:{MUTED}; letter-spacing:.08em;
+        display:flex; gap:16px; margin-bottom:8px;
+    }}
+    .news-summary {{ font-size:.82rem; color:{TEXT}; line-height:1.65; }}
+    .news-tag {{
+        display:inline-block; font-family:'IBM Plex Mono',monospace;
+        font-size:.55rem; padding:2px 8px; border-radius:3px;
+        letter-spacing:.08em; text-transform:uppercase; margin-left:8px;
+    }}
+    .tag-pos {{ background:{"rgba(0,204,102,.15)" if DARK else "rgba(0,136,68,.1)"}; color:{GREEN}; }}
+    .tag-neg {{ background:{"rgba(255,51,85,.15)"  if DARK else "rgba(204,17,51,.1)"}; color:{RED};   }}
+    .tag-neu {{ background:{"rgba(91,127,255,.15)" if DARK else "rgba(51,85,238,.1)"}; color:{ACCENT};}}
+    </style>
+    """, unsafe_allow_html=True)
+
+    @st.cache_data(ttl=600)
+    def fetch_news(tkr):
+        try:
+            t = yf.Ticker(tkr)
+            return t.news if hasattr(t, 'news') else []
+        except:
+            return []
+
+    # Keywords for basic sentiment
+    POS_WORDS = ["surge","gain","profit","beat","record","growth","rise","up","rally",
+                 "strong","bullish","upgrade","buy","outperform","revenue","positive"]
+    NEG_WORDS = ["fall","drop","loss","miss","decline","down","cut","bearish","downgrade",
+                 "sell","underperform","risk","concern","weak","crash","plunge"]
+
+    def sentiment(text):
+        text = text.lower()
+        pos = sum(1 for w in POS_WORDS if w in text)
+        neg = sum(1 for w in NEG_WORDS if w in text)
+        if pos > neg:   return "pos", "Positive"
+        elif neg > pos: return "neg", "Negative"
+        else:           return "neu", "Neutral"
+
+    with st.spinner("Fetching latest news..."):
+        news = fetch_news(ticker)
+
+    if not news:
+        st.info("No news available for this ticker right now. Try a different stock.")
+    else:
+        # Summary bar
+        sentiments = [sentiment(n.get("title",""))[0] for n in news]
+        pos_count  = sentiments.count("pos")
+        neg_count  = sentiments.count("neg")
+        neu_count  = sentiments.count("neu")
+
+        st.markdown(f"""
+        <div class="krow">
+          <div class="kpi nu"><div class="klabel">Total Articles</div><div class="kval">{len(news)}</div><div class="ksub">Last 24–48 hrs</div></div>
+          <div class="kpi up"><div class="klabel">Positive</div><div class="kval">{pos_count}</div><div class="ksub">Bullish sentiment</div></div>
+          <div class="kpi dn"><div class="klabel">Negative</div><div class="kval">{neg_count}</div><div class="ksub">Bearish sentiment</div></div>
+          <div class="kpi wa"><div class="klabel">Neutral</div><div class="kval">{neu_count}</div><div class="ksub">No clear signal</div></div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        for article in news[:15]:
+            title     = article.get("title", "No title")
+            link      = article.get("link", "#")
+            publisher = article.get("publisher", "Unknown")
+            pub_time  = article.get("providerPublishTime", None)
+            summary   = article.get("summary", "")
+
+            # Format time
+            if pub_time:
+                try:
+                    dt  = datetime.datetime.fromtimestamp(pub_time)
+                    time_str = dt.strftime("%d %b %Y · %H:%M")
+                    # How long ago
+                    diff = datetime.datetime.now() - dt
+                    hrs  = int(diff.total_seconds() / 3600)
+                    ago  = f"{hrs}h ago" if hrs < 24 else f"{diff.days}d ago"
+                except:
+                    time_str = ""; ago = ""
+            else:
+                time_str = ""; ago = ""
+
+            cls, sent_label = sentiment(title)
+            tag_cls = f"tag-{cls}"
+
+            st.markdown(f"""
+            <div class="news-card {cls}">
+              <div class="news-title">
+                <a href="{link}" target="_blank">{title}</a>
+                <span class="news-tag {tag_cls}">{sent_label}</span>
+              </div>
+              <div class="news-meta">
+                <span>📰 {publisher}</span>
+                <span>🕐 {time_str}</span>
+                <span>{ago}</span>
+              </div>
+              {"<div class='news-summary'>" + summary[:200] + ("..." if len(summary)>200 else "") + "</div>" if summary else ""}
+            </div>
+            """, unsafe_allow_html=True)
 
 # Footer
 st.markdown(f"""
