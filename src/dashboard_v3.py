@@ -325,7 +325,7 @@ st.markdown(f"""<div class="krow">
 </div>""", unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-T1,T2,T3,T4,T5,T6,T7 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced"])
+T1,T2,T3,T4,T5,T6,T7,T8 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced","🎯  Patterns & Tools"])
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TAB 1 — PRICE
@@ -922,9 +922,389 @@ with T6:
             </div>
             """, unsafe_allow_html=True)
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 8 — PATTERNS & TOOLS
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+with T8:
+
+    # ════════════════════════════════════════════════
+    # SECTION 1 — CANDLESTICK PATTERN RECOGNITION
+    # ════════════════════════════════════════════════
+    st.markdown('<div class="slabel">🕯️ Candlestick Pattern Recognition</div>', unsafe_allow_html=True)
+
+    def detect_patterns(df):
+        """Detect common candlestick patterns"""
+        patterns = []
+        d = df.copy()
+        d["Body"]      = abs(d["Close"] - d["Open"])
+        d["UpperWick"] = d["High"] - d[["Close","Open"]].max(axis=1)
+        d["LowerWick"] = d[["Close","Open"]].min(axis=1) - d["Low"]
+        d["Range"]     = d["High"] - d["Low"]
+        d["IsBull"]    = d["Close"] > d["Open"]
+
+        for i in range(2, len(d)):
+            row   = d.iloc[i]
+            prev  = d.iloc[i-1]
+            prev2 = d.iloc[i-2]
+            date  = d["Date"].iloc[i]
+            close = row["Close"]
+
+            body  = row["Body"]
+            rng   = row["Range"] if row["Range"] > 0 else 1
+            upper = row["UpperWick"]
+            lower = row["LowerWick"]
+
+            # ── Doji (indecision)
+            if body / rng < 0.1 and rng > 0:
+                patterns.append({
+                    "Date": date, "Pattern": "Doji",
+                    "Type": "⚪ Neutral", "Signal": "Indecision — trend may reverse",
+                    "Close": close, "Strength": "Medium"
+                })
+
+            # ── Hammer (bullish reversal)
+            elif (lower > 2 * body and upper < body * 0.3
+                  and row["IsBull"] and prev["Close"] < prev2["Close"]):
+                patterns.append({
+                    "Date": date, "Pattern": "Hammer 🔨",
+                    "Type": "🟢 Bullish", "Signal": "Strong bullish reversal signal",
+                    "Close": close, "Strength": "Strong"
+                })
+
+            # ── Shooting Star (bearish reversal)
+            elif (upper > 2 * body and lower < body * 0.3
+                  and not row["IsBull"] and prev["Close"] > prev2["Close"]):
+                patterns.append({
+                    "Date": date, "Pattern": "Shooting Star ⭐",
+                    "Type": "🔴 Bearish", "Signal": "Bearish reversal at resistance",
+                    "Close": close, "Strength": "Strong"
+                })
+
+            # ── Bullish Engulfing
+            elif (row["IsBull"] and not prev["IsBull"]
+                  and row["Open"] < prev["Close"]
+                  and row["Close"] > prev["Open"]):
+                patterns.append({
+                    "Date": date, "Pattern": "Bullish Engulfing",
+                    "Type": "🟢 Bullish", "Signal": "Bulls overpowered bears — uptrend likely",
+                    "Close": close, "Strength": "Very Strong"
+                })
+
+            # ── Bearish Engulfing
+            elif (not row["IsBull"] and prev["IsBull"]
+                  and row["Open"] > prev["Close"]
+                  and row["Close"] < prev["Open"]):
+                patterns.append({
+                    "Date": date, "Pattern": "Bearish Engulfing",
+                    "Type": "🔴 Bearish", "Signal": "Bears overpowered bulls — downtrend likely",
+                    "Close": close, "Strength": "Very Strong"
+                })
+
+            # ── Morning Star (bullish)
+            elif (not prev2["IsBull"] and prev["Body"]/rng < 0.15
+                  and row["IsBull"] and row["Close"] > (prev2["Open"] + prev2["Close"]) / 2):
+                patterns.append({
+                    "Date": date, "Pattern": "Morning Star 🌅",
+                    "Type": "🟢 Bullish", "Signal": "3-candle bullish reversal pattern",
+                    "Close": close, "Strength": "Very Strong"
+                })
+
+            # ── Evening Star (bearish)
+            elif (prev2["IsBull"] and prev["Body"]/rng < 0.15
+                  and not row["IsBull"] and row["Close"] < (prev2["Open"] + prev2["Close"]) / 2):
+                patterns.append({
+                    "Date": date, "Pattern": "Evening Star 🌆",
+                    "Type": "🔴 Bearish", "Signal": "3-candle bearish reversal pattern",
+                    "Close": close, "Strength": "Very Strong"
+                })
+
+            # ── Marubozu (strong momentum)
+            elif body / rng > 0.9:
+                ptype = "🟢 Bullish" if row["IsBull"] else "🔴 Bearish"
+                patterns.append({
+                    "Date": date, "Pattern": f"Marubozu {'Bull' if row['IsBull'] else 'Bear'}",
+                    "Type": ptype, "Signal": "Strong momentum — no wicks",
+                    "Close": close, "Strength": "Strong"
+                })
+
+        return patterns
+
+    with st.spinner("Detecting patterns..."):
+        all_patterns = detect_patterns(df)
+
+    if not all_patterns:
+        st.info("No strong patterns detected in this period.")
+    else:
+        pat_df = pd.DataFrame(all_patterns).tail(20)
+
+        # Summary
+        bull_count = sum(1 for p in all_patterns if "Bullish" in p["Type"])
+        bear_count = sum(1 for p in all_patterns if "Bearish" in p["Type"])
+        neu_count  = sum(1 for p in all_patterns if "Neutral" in p["Type"])
+        recent_pat = all_patterns[-1]
+
+        st.markdown(f"""<div class="krow">
+          <div class="kpi nu"><div class="klabel">Total Patterns</div>
+            <div class="kval">{len(all_patterns)}</div><div class="ksub">Detected in {period}</div></div>
+          <div class="kpi up"><div class="klabel">Bullish Patterns</div>
+            <div class="kval">{bull_count}</div><div class="ksub">Buy signals</div></div>
+          <div class="kpi dn"><div class="klabel">Bearish Patterns</div>
+            <div class="kval">{bear_count}</div><div class="ksub">Sell signals</div></div>
+          <div class="kpi wa"><div class="klabel">Latest Pattern</div>
+            <div class="kval" style="font-size:.85rem">{recent_pat["Pattern"]}</div>
+            <div class="ksub">{recent_pat["Type"]}</div></div>
+        </div>""", unsafe_allow_html=True)
+
+        # Pattern on Chart
+        st.markdown('<div class="slabel">Patterns on Chart — Last 60 Days</div>', unsafe_allow_html=True)
+        df60 = df.tail(60)
+        fig_pat = go.Figure()
+        fig_pat.add_trace(go.Candlestick(
+            x=df60["Date"], open=df60["Open"], high=df60["High"],
+            low=df60["Low"], close=df60["Close"],
+            increasing=dict(line_color=GREEN, fillcolor=GREEN),
+            decreasing=dict(line_color=RED,   fillcolor=RED),
+            name="Price", line_width=1,
+        ))
+
+        # Plot pattern markers
+        bull_pats = [p for p in all_patterns if "Bullish" in p["Type"] and p["Date"] >= df60["Date"].iloc[0]]
+        bear_pats = [p for p in all_patterns if "Bearish" in p["Type"] and p["Date"] >= df60["Date"].iloc[0]]
+        neut_pats = [p for p in all_patterns if "Neutral" in p["Type"] and p["Date"] >= df60["Date"].iloc[0]]
+
+        if bull_pats:
+            fig_pat.add_trace(go.Scatter(
+                x=[p["Date"] for p in bull_pats],
+                y=[p["Close"] * 0.985 for p in bull_pats],
+                mode="markers+text",
+                marker=dict(symbol="triangle-up", size=12, color=GREEN),
+                text=[p["Pattern"].split()[0] for p in bull_pats],
+                textposition="bottom center", textfont=dict(size=8, color=GREEN),
+                name="Bullish Pattern",
+            ))
+        if bear_pats:
+            fig_pat.add_trace(go.Scatter(
+                x=[p["Date"] for p in bear_pats],
+                y=[p["Close"] * 1.015 for p in bear_pats],
+                mode="markers+text",
+                marker=dict(symbol="triangle-down", size=12, color=RED),
+                text=[p["Pattern"].split()[0] for p in bear_pats],
+                textposition="top center", textfont=dict(size=8, color=RED),
+                name="Bearish Pattern",
+            ))
+        if neut_pats:
+            fig_pat.add_trace(go.Scatter(
+                x=[p["Date"] for p in neut_pats],
+                y=[p["Close"] for p in neut_pats],
+                mode="markers",
+                marker=dict(symbol="circle", size=8, color=AMBER),
+                name="Neutral Pattern",
+            ))
+
+        th(fig_pat, h=420, title="Candlestick Patterns — Last 60 Days",
+           xaxis_rangeslider_visible=False)
+        st.plotly_chart(fig_pat, use_container_width=True, config={"displayModeBar": False})
+
+        # Pattern Table
+        st.markdown('<div class="slabel">Recent Patterns (Last 20)</div>', unsafe_allow_html=True)
+        display_df = pat_df[["Date","Pattern","Type","Signal","Close","Strength"]].copy()
+        display_df["Date"] = display_df["Date"].astype(str).str[:10]
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    # ════════════════════════════════════════════════
+    # SECTION 2 — VOLUME ANALYSIS
+    # ════════════════════════════════════════════════
+    st.markdown('<div class="slabel">📊 Volume Analysis — OBV & Spike Detection</div>', unsafe_allow_html=True)
+
+    # OBV — On Balance Volume
+    obv = [0]
+    for i in range(1, len(df)):
+        if df["Close"].iloc[i] > df["Close"].iloc[i-1]:
+            obv.append(obv[-1] + df["Volume"].iloc[i])
+        elif df["Close"].iloc[i] < df["Close"].iloc[i-1]:
+            obv.append(obv[-1] - df["Volume"].iloc[i])
+        else:
+            obv.append(obv[-1])
+    df["OBV"] = obv
+
+    # Volume spike — 2x average
+    vol_avg      = df["Volume"].rolling(20).mean()
+    df["VolSpike"] = df["Volume"] > vol_avg * 2
+
+    spike_count = df["VolSpike"].sum()
+    avg_vol_val = df["Volume"].mean()
+    max_vol_val = df["Volume"].max()
+
+    st.markdown(f"""<div class="krow">
+      <div class="kpi nu"><div class="klabel">Avg Daily Volume</div>
+        <div class="kval">{avg_vol_val/1e6:.1f}M</div></div>
+      <div class="kpi wa"><div class="klabel">Max Volume Day</div>
+        <div class="kval">{max_vol_val/1e6:.1f}M</div></div>
+      <div class="kpi {'up' if spike_count>0 else 'nu'}"><div class="klabel">Volume Spikes</div>
+        <div class="kval">{spike_count}</div>
+        <div class="ksub">Days with 2x avg volume</div></div>
+      <div class="kpi {'up' if obv[-1]>0 else 'dn'}"><div class="klabel">OBV Trend</div>
+        <div class="kval">{"Rising ▲" if obv[-1]>obv[len(obv)//2] else "Falling ▼"}</div>
+        <div class="ksub">On Balance Volume</div></div>
+    </div>""", unsafe_allow_html=True)
+
+    # OBV Chart
+    fig_obv = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                            row_heights=[0.5, 0.5], vertical_spacing=0.04)
+
+    # Price
+    fig_obv.add_trace(go.Scatter(
+        x=df["Date"], y=df["Close"],
+        line=dict(color=ACCENT, width=1.8), name="Price",
+    ), row=1, col=1)
+
+    # Volume bars with spikes highlighted
+    vol_colors = []
+    for i, row in df.iterrows():
+        if df.loc[i, "VolSpike"]:
+            vol_colors.append(AMBER)
+        elif row["Close"] >= row["Open"]:
+            vol_colors.append(GREEN)
+        else:
+            vol_colors.append(RED)
+
+    fig_obv.add_trace(go.Bar(
+        x=df["Date"], y=df["Volume"],
+        marker_color=vol_colors, name="Volume", opacity=0.6,
+    ), row=2, col=1)
+
+    # OBV line on volume chart (normalized)
+    obv_series = pd.Series(obv)
+    obv_norm = (obv_series - obv_series.min()) / (obv_series.max() - obv_series.min()) * df["Volume"].max()
+    fig_obv.add_trace(go.Scatter(
+        x=df["Date"], y=obv_norm,
+        line=dict(color="#9944ff", width=2, dash="dot"),
+        name="OBV (scaled)",
+    ), row=2, col=1)
+
+    th(fig_obv, h=400, title="Price + Volume Analysis (🟡 = Volume Spike)")
+    fig_obv.update_yaxes(title_text="Price",  row=1, col=1, title_font_color=MUTED)
+    fig_obv.update_yaxes(title_text="Volume", row=2, col=1, title_font_color=MUTED)
+    st.plotly_chart(fig_obv, use_container_width=True, config={"displayModeBar": False})
+
+    # Volume spike dates table
+    spike_dates = df[df["VolSpike"]][["Date","Close","Volume"]].tail(10).copy()
+    if not spike_dates.empty:
+        spike_dates["Date"]   = spike_dates["Date"].astype(str).str[:10]
+        spike_dates["Volume"] = spike_dates["Volume"].apply(lambda x: f"{x/1e6:.2f}M")
+        st.markdown('<div class="slabel">Recent Volume Spikes (Last 10)</div>', unsafe_allow_html=True)
+        st.dataframe(spike_dates, use_container_width=True, hide_index=True)
+
+    # ════════════════════════════════════════════════
+    # SECTION 3 — PRICE TARGET & RISK/REWARD
+    # ════════════════════════════════════════════════
+    st.markdown('<div class="slabel">🎯 Price Target & Risk/Reward Calculator</div>', unsafe_allow_html=True)
+    st.caption("Enter your trade details to calculate Risk/Reward ratio")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        entry_price = st.number_input(
+            "Entry Price", value=float(round(cur, 2)),
+            min_value=0.01, step=0.5,
+            help="Price at which you plan to buy"
+        )
+    with c2:
+        stop_loss = st.number_input(
+            "Stop Loss", value=float(round(cur * 0.95, 2)),
+            min_value=0.01, step=0.5,
+            help="Price at which you'll exit if wrong"
+        )
+    with c3:
+        target = st.number_input(
+            "Target Price", value=float(round(cur * 1.10, 2)),
+            min_value=0.01, step=0.5,
+            help="Price at which you'll book profit"
+        )
+
+    qty_input = st.number_input("Quantity (shares)", value=10, min_value=1, step=1)
+
+    if entry_price > 0 and stop_loss > 0 and target > 0:
+        risk_per_share   = entry_price - stop_loss
+        reward_per_share = target - entry_price
+        rr_ratio = reward_per_share / risk_per_share if risk_per_share > 0 else 0
+
+        total_risk   = risk_per_share * qty_input
+        total_reward = reward_per_share * qty_input
+        total_invest = entry_price * qty_input
+        risk_pct     = (risk_per_share / entry_price) * 100
+        reward_pct   = (reward_per_share / entry_price) * 100
+
+        rr_color = "up" if rr_ratio >= 2 else "wa" if rr_ratio >= 1 else "dn"
+        rr_label = "Excellent ✅" if rr_ratio >= 3 else "Good ✅" if rr_ratio >= 2 else "Acceptable ⚠️" if rr_ratio >= 1 else "Poor ❌"
+
+        st.markdown(f"""<div class="krow">
+          <div class="kpi nu"><div class="klabel">Total Investment</div>
+            <div class="kval">₹{total_invest:,.0f}</div>
+            <div class="ksub">{qty_input} shares @ {entry_price}</div></div>
+          <div class="kpi dn"><div class="klabel">Max Risk</div>
+            <div class="kval">₹{total_risk:,.0f}</div>
+            <div class="ksub">▼ {risk_pct:.1f}% per share</div></div>
+          <div class="kpi up"><div class="klabel">Potential Reward</div>
+            <div class="kval">₹{total_reward:,.0f}</div>
+            <div class="ksub">▲ {reward_pct:.1f}% per share</div></div>
+          <div class="kpi {rr_color}"><div class="klabel">Risk:Reward Ratio</div>
+            <div class="kval">1 : {rr_ratio:.1f}</div>
+            <div class="ksub">{rr_label}</div></div>
+        </div>""", unsafe_allow_html=True)
+
+        # Visual R:R chart
+        fig_rr = go.Figure()
+
+        # Price line
+        fig_rr.add_trace(go.Scatter(
+            x=df["Date"].tail(60), y=df["Close"].tail(60),
+            line=dict(color=ACCENT, width=1.5), name="Price", opacity=0.7,
+        ))
+
+        # Entry, Stop Loss, Target lines
+        fig_rr.add_hline(y=entry_price, line_color=AMBER, line_width=2,
+                         annotation_text=f"Entry: {entry_price:.1f}",
+                         annotation_font_color=AMBER, annotation_font_size=10)
+        fig_rr.add_hline(y=stop_loss, line_color=RED, line_width=2, line_dash="dash",
+                         annotation_text=f"Stop Loss: {stop_loss:.1f} (-{risk_pct:.1f}%)",
+                         annotation_font_color=RED, annotation_font_size=10)
+        fig_rr.add_hline(y=target, line_color=GREEN, line_width=2, line_dash="dash",
+                         annotation_text=f"Target: {target:.1f} (+{reward_pct:.1f}%)",
+                         annotation_font_color=GREEN, annotation_font_size=10)
+
+        # Fill zones
+        fig_rr.add_hrect(y0=stop_loss, y1=entry_price,
+                         fillcolor=f"{'rgba(255,51,85,.1)' if DARK else 'rgba(204,17,51,.08)'}",
+                         annotation_text="Risk Zone", annotation_font_color=RED,
+                         annotation_font_size=9)
+        fig_rr.add_hrect(y0=entry_price, y1=target,
+                         fillcolor=f"{'rgba(0,204,102,.1)' if DARK else 'rgba(0,136,68,.08)'}",
+                         annotation_text="Reward Zone", annotation_font_color=GREEN,
+                         annotation_font_size=9)
+
+        th(fig_rr, h=380, title=f"Trade Setup — R:R = 1:{rr_ratio:.1f}")
+        st.plotly_chart(fig_rr, use_container_width=True, config={"displayModeBar": False})
+
+        # Breakeven & Win probability
+        st.markdown('<div class="slabel">Breakeven Analysis</div>', unsafe_allow_html=True)
+        breakeven_winrate = 1 / (1 + rr_ratio) * 100 if rr_ratio > 0 else 50
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(f"""<div class="sig bl">
+                <strong>Minimum Win Rate Needed: {breakeven_winrate:.1f}%</strong><br>
+                To be profitable with 1:{rr_ratio:.1f} R:R, you need to win at least {breakeven_winrate:.1f}% of your trades.
+            </div>""", unsafe_allow_html=True)
+        with c2:
+            trades_to_recover = int(np.ceil(total_risk / total_reward)) if total_reward > 0 else 0
+            st.markdown(f"""<div class="sig {'bl' if rr_ratio>=2 else 'bn'}">
+                <strong>Trades to recover 1 loss: {trades_to_recover}</strong><br>
+                {"Great R:R! One win recovers multiple losses." if rr_ratio>=2 else "Consider improving R:R above 1:2 for consistent profitability."}
+            </div>""", unsafe_allow_html=True)
+
 # Footer
 st.markdown(f"""
 <div style='margin-top:28px;border-top:1px solid {BORDER};padding-top:10px;
 font-family:IBM Plex Mono;font-size:.55rem;color:{MUTED};letter-spacing:.1em'>
 MARKETLENS · DATA VIA YAHOO FINANCE · EDUCATIONAL USE ONLY · NOT FINANCIAL ADVICE
-</div>""",unsafe_allow_html=True)
+</div>""", unsafe_allow_html=True)
