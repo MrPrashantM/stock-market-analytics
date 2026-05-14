@@ -412,7 +412,7 @@ if st.session_state.auto_refresh:
     st.rerun()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-T1,T2,T3,T4,T5,T6,T7,T8,T9,T10 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced","🎯  Patterns & Tools","🤖  ML Forecast","📈  Options Chain"])
+T1,T2,T3,T4,T5,T6,T7,T8,T9,T10,T11 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced","🎯  Patterns & Tools","🤖  ML Forecast","📈  Options Chain","🌍  Sector Heatmap"])
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TAB 1 — PRICE
@@ -1672,13 +1672,11 @@ with T10:
         try:
             t = yf.Ticker(tkr)
             exps = t.options
-            if not exps: return []
-            return list(exps)
-        except: return []
+            if not exps: return None, None, None
+            return t, exps, True
+        except: return None, None, None
 
-    expirations = fetch_options(ticker)
-    has_options = len(expirations) > 0
-    tick_obj = yf.Ticker(ticker)
+    tick_obj, expirations, has_options = fetch_options(ticker)
 
     if not has_options or not expirations:
         st.warning(f"⚠️ Options data not available for `{ticker}`. Try US stocks like `AAPL`, `MSFT`, `TSLA`, `NVDA`.")
@@ -1905,6 +1903,229 @@ with T10:
                 st.plotly_chart(fig_pain, use_container_width=True, config={"displayModeBar": False})
             except:
                 st.info("Max pain calculation not available for this expiry.")
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 11 — SECTOR HEATMAP
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+with T11:
+    st.markdown('<div class="slabel">🌍 Market Sector Heatmap</div>', unsafe_allow_html=True)
+
+    # ── Market selector ───────────────────────────────────────────────────────
+    market_sel = st.radio("Market", ["🇮🇳 India (NSE)", "🇺🇸 US Market"], horizontal=True)
+
+    # ── Sector definitions ────────────────────────────────────────────────────
+    NSE_SECTORS = {
+        "IT": ["TCS.NS","INFY.NS","WIPRO.NS","HCLTECH.NS","TECHM.NS","LTIM.NS","PERSISTENT.NS","COFORGE.NS"],
+        "Banking": ["HDFCBANK.NS","ICICIBANK.NS","SBIN.NS","KOTAKBANK.NS","AXISBANK.NS","INDUSINDBK.NS","BANDHANBNK.NS"],
+        "Auto": ["TATAMOTORS.NS","MARUTI.NS","BAJAJ-AUTO.NS","HEROMOTOCO.NS","EICHERMOT.NS","M&M.NS","TVSMOTOR.NS"],
+        "Pharma": ["SUNPHARMA.NS","DRREDDY.NS","CIPLA.NS","DIVISLAB.NS","APOLLOHOSP.NS","AUROPHARMA.NS"],
+        "Energy": ["RELIANCE.NS","ONGC.NS","NTPC.NS","POWERGRID.NS","COALINDIA.NS","BPCL.NS","IOC.NS"],
+        "FMCG": ["HINDUNILVR.NS","ITC.NS","NESTLEIND.NS","BRITANNIA.NS","DABUR.NS","MARICO.NS","GODREJCP.NS"],
+        "Metals": ["TATASTEEL.NS","JSWSTEEL.NS","HINDALCO.NS","VEDL.NS","SAIL.NS","NMDC.NS"],
+        "Infra": ["ADANIENT.NS","ADANIPORTS.NS","DLF.NS","LODHA.NS","GODREJPROP.NS","OBEROIRLTY.NS"],
+        "Finance": ["BAJFINANCE.NS","BAJAJFINSV.NS","HDFC.NS","MUTHOOTFIN.NS","CHOLAFIN.NS","LICHSGFIN.NS"],
+        "Telecom": ["BHARTIARTL.NS","INDUSTOWER.NS","TATACOMM.NS"],
+    }
+
+    US_SECTORS = {
+        "Technology": ["AAPL","MSFT","NVDA","GOOGL","META","ORCL","ADBE","CRM"],
+        "Consumer": ["AMZN","TSLA","NKE","SBUX","MCD","HD","TGT","COST"],
+        "Healthcare": ["JNJ","UNH","PFE","ABBV","MRK","TMO","ABT","LLY"],
+        "Finance": ["JPM","BAC","GS","MS","V","MA","BRK-B","C"],
+        "Energy": ["XOM","CVX","COP","SLB","EOG","PXD","MPC","VLO"],
+        "Industrials": ["CAT","BA","GE","MMM","HON","UPS","FDX","RTX"],
+        "Telecom": ["T","VZ","TMUS","CMCSA","CHTR","DISH"],
+        "Real Estate": ["AMT","PLD","CCI","EQIX","SPG","PSA"],
+        "Utilities": ["NEE","DUK","SO","D","AEP","EXC"],
+        "Materials": ["LIN","APD","SHW","ECL","NEM","FCX"],
+    }
+
+    sectors = NSE_SECTORS if "India" in market_sel else US_SECTORS
+
+    # ── Fetch sector data ─────────────────────────────────────────────────────
+    @st.cache_data(ttl=300)
+    def fetch_sector_data(market, period_sel="1d"):
+        sec_data = NSE_SECTORS if "India" in market else US_SECTORS
+        results  = {}
+        for sector, tickers_list in sec_data.items():
+            sector_stocks = []
+            for tk in tickers_list:
+                try:
+                    d = yf.Ticker(tk).history(period="5d")
+                    if len(d) >= 2:
+                        cur_p  = d["Close"].iloc[-1]
+                        prev_p = d["Close"].iloc[-2]
+                        chg    = (cur_p - prev_p) / prev_p * 100
+                        mktcap = None
+                        try:
+                            info   = yf.Ticker(tk).info
+                            mktcap = info.get("marketCap", None)
+                        except: pass
+                        sector_stocks.append({
+                            "ticker": tk.replace(".NS",""),
+                            "change": round(chg, 2),
+                            "price":  round(cur_p, 2),
+                            "mktcap": mktcap or 1e9,
+                        })
+                except: pass
+            if sector_stocks:
+                results[sector] = sector_stocks
+        return results
+
+    with st.spinner("Fetching sector data... (may take 30-60 seconds)"):
+        sector_data = fetch_sector_data(market_sel)
+
+    if not sector_data:
+        st.error("Could not fetch sector data. Check internet connection.")
+    else:
+        # ── Sector Summary KPIs ───────────────────────────────────────────────
+        sector_avgs = {}
+        for sec, stocks in sector_data.items():
+            avg_chg = np.mean([s["change"] for s in stocks])
+            sector_avgs[sec] = round(avg_chg, 2)
+
+        best_sec  = max(sector_avgs, key=sector_avgs.get)
+        worst_sec = min(sector_avgs, key=sector_avgs.get)
+        green_sec = sum(1 for v in sector_avgs.values() if v >= 0)
+        red_sec   = sum(1 for v in sector_avgs.values() if v < 0)
+
+        st.markdown(f"""<div class="krow">
+          <div class="kpi up"><div class="klabel">Best Sector</div>
+            <div class="kval" style="font-size:1rem">{best_sec}</div>
+            <div class="ksub">▲ {sector_avgs[best_sec]:+.2f}% today</div></div>
+          <div class="kpi dn"><div class="klabel">Worst Sector</div>
+            <div class="kval" style="font-size:1rem">{worst_sec}</div>
+            <div class="ksub">▼ {sector_avgs[worst_sec]:+.2f}% today</div></div>
+          <div class="kpi up"><div class="klabel">Green Sectors</div>
+            <div class="kval">{green_sec}</div>
+            <div class="ksub">Sectors in green</div></div>
+          <div class="kpi dn"><div class="klabel">Red Sectors</div>
+            <div class="kval">{red_sec}</div>
+            <div class="ksub">Sectors in red</div></div>
+          <div class="kpi nu"><div class="klabel">Total Sectors</div>
+            <div class="kval">{len(sector_avgs)}</div>
+            <div class="ksub">Tracked today</div></div>
+        </div>""", unsafe_allow_html=True)
+
+        # ── Sector Bar Chart ──────────────────────────────────────────────────
+        st.markdown('<div class="slabel">Sector Performance — Today</div>', unsafe_allow_html=True)
+
+        sec_sorted = dict(sorted(sector_avgs.items(), key=lambda x: x[1], reverse=True))
+        bar_colors = [GREEN if v >= 0 else RED for v in sec_sorted.values()]
+
+        fig_sec = go.Figure(go.Bar(
+            x=list(sec_sorted.keys()),
+            y=list(sec_sorted.values()),
+            marker_color=bar_colors,
+            text=[f"{v:+.2f}%" for v in sec_sorted.values()],
+            textposition="outside",
+            textfont_color=TEXT,
+        ))
+        fig_sec.add_hline(y=0, line_color=BORDER, line_width=1)
+        th(fig_sec, h=320, title="Sector Returns % — Today")
+        fig_sec.update_yaxes(title_text="Change %")
+        st.plotly_chart(fig_sec, use_container_width=True, config={"displayModeBar": False})
+
+        # ── Treemap Heatmap ───────────────────────────────────────────────────
+        st.markdown('<div class="slabel">Treemap — Market Overview</div>', unsafe_allow_html=True)
+
+        tree_labels  = []
+        tree_parents = []
+        tree_values  = []
+        tree_colors  = []
+        tree_text    = []
+
+        # Root
+        tree_labels.append("Market")
+        tree_parents.append("")
+        tree_values.append(0)
+        tree_colors.append(0)
+        tree_text.append("Market")
+
+        for sec, stocks in sector_data.items():
+            sec_avg = sector_avgs.get(sec, 0)
+            sec_val = sum(s["mktcap"] for s in stocks)
+            tree_labels.append(sec)
+            tree_parents.append("Market")
+            tree_values.append(sec_val)
+            tree_colors.append(sec_avg)
+            tree_text.append(f"{sec}<br>{sec_avg:+.2f}%")
+
+            for s in stocks:
+                tree_labels.append(s["ticker"])
+                tree_parents.append(sec)
+                tree_values.append(max(s["mktcap"], 1e8))
+                tree_colors.append(s["change"])
+                tree_text.append(f"{s['ticker']}<br>{s['change']:+.2f}%<br>{s['price']}")
+
+        fig_tree = go.Figure(go.Treemap(
+            labels  = tree_labels,
+            parents = tree_parents,
+            values  = tree_values,
+            text    = tree_text,
+            customdata = tree_colors,
+            marker  = dict(
+                colors    = tree_colors,
+                colorscale= [
+                    [0.0,  "#cc1133"],
+                    [0.35, "#882222"],
+                    [0.5,  SURF2],
+                    [0.65, "#224422"],
+                    [1.0,  "#00aa44"],
+                ],
+                cmid      = 0,
+                showscale = True,
+                colorbar  = dict(
+                    title = "Change %",
+                    tickfont_color = TEXT,
+                    titlefont_color = TEXT,
+                ),
+            ),
+            textinfo    = "text",
+            hovertemplate = "<b>%{label}</b><br>Change: %{customdata:.2f}%<extra></extra>",
+            pathbar     = dict(visible=True),
+            tiling      = dict(packing="squarify"),
+        ))
+
+        fig_tree.update_layout(
+            **{k:v for k,v in BASE_LAYOUT.items() if k not in ["xaxis","yaxis"]},
+            height=550,
+            title=f"{'NSE' if 'India' in market_sel else 'US'} Market Treemap — Size = Market Cap · Color = % Change",
+        )
+        st.plotly_chart(fig_tree, use_container_width=True, config={"displayModeBar": False})
+
+        # ── Stock-level heatmap ───────────────────────────────────────────────
+        st.markdown('<div class="slabel">Stock-wise Performance by Sector</div>', unsafe_allow_html=True)
+
+        selected_sector = st.selectbox(
+            "Select Sector",
+            options=list(sector_data.keys()),
+            label_visibility="collapsed"
+        )
+
+        if selected_sector in sector_data:
+            stocks_in_sec = sector_data[selected_sector]
+            stocks_sorted = sorted(stocks_in_sec, key=lambda x: x["change"], reverse=True)
+
+            fig_stocks = go.Figure(go.Bar(
+                x=[s["ticker"] for s in stocks_sorted],
+                y=[s["change"] for s in stocks_sorted],
+                marker_color=[GREEN if s["change"] >= 0 else RED for s in stocks_sorted],
+                text=[f"{s['change']:+.2f}%" for s in stocks_sorted],
+                textposition="outside",
+                textfont_color=TEXT,
+                customdata=[[s["price"]] for s in stocks_sorted],
+                hovertemplate="<b>%{x}</b><br>Change: %{y:.2f}%<br>Price: %{customdata[0]:.2f}<extra></extra>",
+            ))
+            fig_stocks.add_hline(y=0, line_color=BORDER, line_width=1)
+            th(fig_stocks, h=300, title=f"{selected_sector} Sector — Stock Performance")
+            st.plotly_chart(fig_stocks, use_container_width=True, config={"displayModeBar": False})
+
+            # Table
+            df_sec = pd.DataFrame(stocks_sorted)[["ticker","price","change"]]
+            df_sec.columns = ["Stock","Price","Change %"]
+            df_sec["Change %"] = df_sec["Change %"].apply(lambda x: f"{x:+.2f}%")
+            st.dataframe(df_sec, use_container_width=True, hide_index=True)
 
 # Footer
 st.markdown(f"""
