@@ -2078,9 +2078,8 @@ with T11:
                 cmid      = 0,
                 showscale = True,
                 colorbar  = dict(
-                    title = "Change %",
-                    tickfont_color = TEXT,
-                    titlefont_color = TEXT,
+                    title = dict(text="Change %", font=dict(color=TEXT)),
+                    tickfont = dict(color=TEXT),
                 ),
             ),
             textinfo    = "text",
