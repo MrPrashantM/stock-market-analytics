@@ -412,7 +412,7 @@ if st.session_state.auto_refresh:
     st.rerun()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-T1,T2,T3,T4,T5,T6,T7,T8,T9 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced","🎯  Patterns & Tools","🤖  ML Forecast"])
+T1,T2,T3,T4,T5,T6,T7,T8,T9,T10 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced","🎯  Patterns & Tools","🤖  ML Forecast","📈  Options Chain"])
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TAB 1 — PRICE
@@ -1660,9 +1660,255 @@ with T9:
         This forecast is for <strong>educational purposes only</strong> — not financial advice.
     </div>""", unsafe_allow_html=True)
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 10 — OPTIONS CHAIN
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+with T10:
+    st.markdown('<div class="slabel">📈 Options Chain Analysis</div>', unsafe_allow_html=True)
+    st.caption("Options data available for US stocks & some NSE stocks. Try AAPL, MSFT, TSLA, NVDA.")
+
+    @st.cache_data(ttl=300)
+    def fetch_options(tkr):
+        try:
+            t = yf.Ticker(tkr)
+            exps = t.options
+            if not exps: return []
+            return list(exps)
+        except: return []
+
+    expirations = fetch_options(ticker)
+    has_options = len(expirations) > 0
+    tick_obj = yf.Ticker(ticker)
+
+    if not has_options or not expirations:
+        st.warning(f"⚠️ Options data not available for `{ticker}`. Try US stocks like `AAPL`, `MSFT`, `TSLA`, `NVDA`.")
+    else:
+        # ── Expiry selector ───────────────────────────────────────────────────
+        st.markdown('<div class="slabel">Select Expiry Date</div>', unsafe_allow_html=True)
+        selected_exp = st.selectbox(
+            "Expiration Date",
+            options=expirations[:12],
+            label_visibility="collapsed"
+        )
+
+        @st.cache_data(ttl=300)
+        def fetch_chain(tkr, exp):
+            try:
+                t     = yf.Ticker(tkr)
+                chain = t.option_chain(exp)
+                return chain.calls, chain.puts
+            except: return None, None
+
+        calls_df, puts_df = fetch_chain(ticker, selected_exp)
+
+        if calls_df is None or puts_df is None:
+            st.error("Could not fetch options chain. Try again.")
+        else:
+            # ── Clean data ────────────────────────────────────────────────────
+            cols_keep = ["strike","lastPrice","bid","ask","volume","openInterest","impliedVolatility","inTheMoney"]
+            calls_df  = calls_df[[c for c in cols_keep if c in calls_df.columns]].copy()
+            puts_df   = puts_df[[c for c in cols_keep if c in puts_df.columns]].copy()
+
+            calls_df["impliedVolatility"] = (calls_df["impliedVolatility"] * 100).round(2)
+            puts_df["impliedVolatility"]  = (puts_df["impliedVolatility"]  * 100).round(2)
+            calls_df["volume"]       = calls_df["volume"].fillna(0).astype(int)
+            puts_df["volume"]        = puts_df["volume"].fillna(0).astype(int)
+            calls_df["openInterest"] = calls_df["openInterest"].fillna(0).astype(int)
+            puts_df["openInterest"]  = puts_df["openInterest"].fillna(0).astype(int)
+
+            # ── Key Metrics ───────────────────────────────────────────────────
+            total_call_oi = calls_df["openInterest"].sum()
+            total_put_oi  = puts_df["openInterest"].sum()
+            pcr_oi        = total_put_oi / total_call_oi if total_call_oi > 0 else 0
+
+            total_call_vol = calls_df["volume"].sum()
+            total_put_vol  = puts_df["volume"].sum()
+            pcr_vol        = total_put_vol / total_call_vol if total_call_vol > 0 else 0
+
+            avg_call_iv = calls_df["impliedVolatility"].mean()
+            avg_put_iv  = puts_df["impliedVolatility"].mean()
+
+            # PCR interpretation
+            pcr_color = "dn" if pcr_oi > 1.2 else "up" if pcr_oi < 0.8 else "wa"
+            pcr_label = "Bearish 🐻" if pcr_oi > 1.2 else "Bullish 🐂" if pcr_oi < 0.8 else "Neutral ⚖️"
+
+            st.markdown(f"""<div class="krow">
+              <div class="kpi nu"><div class="klabel">Current Price</div>
+                <div class="kval">{cur:.2f}</div>
+                <div class="ksub">Underlying price</div></div>
+              <div class="kpi {pcr_color}"><div class="klabel">P/C Ratio (OI)</div>
+                <div class="kval">{pcr_oi:.2f}</div>
+                <div class="ksub">{pcr_label}</div></div>
+              <div class="kpi {'dn' if pcr_vol>1 else 'up'}"><div class="klabel">P/C Ratio (Vol)</div>
+                <div class="kval">{pcr_vol:.2f}</div>
+                <div class="ksub">Volume based</div></div>
+              <div class="kpi wa"><div class="klabel">Avg Call IV</div>
+                <div class="kval">{avg_call_iv:.1f}%</div>
+                <div class="ksub">Implied Volatility</div></div>
+              <div class="kpi wa"><div class="klabel">Avg Put IV</div>
+                <div class="kval">{avg_put_iv:.1f}%</div>
+                <div class="ksub">Implied Volatility</div></div>
+              <div class="kpi nu"><div class="klabel">Expiry</div>
+                <div class="kval" style="font-size:.9rem">{selected_exp}</div>
+                <div class="ksub">Selected expiration</div></div>
+            </div>""", unsafe_allow_html=True)
+
+            # PCR Signal
+            if pcr_oi > 1.2:
+                sig_cls, sig_text = "br", f"PCR = {pcr_oi:.2f} → High put buying = Bearish sentiment. Market expects downside."
+            elif pcr_oi < 0.8:
+                sig_cls, sig_text = "bl", f"PCR = {pcr_oi:.2f} → High call buying = Bullish sentiment. Market expects upside."
+            else:
+                sig_cls, sig_text = "bn", f"PCR = {pcr_oi:.2f} → Balanced market. No strong directional bias."
+
+            st.markdown(f'<div class="sig {sig_cls}"><strong>Put/Call Signal:</strong> {sig_text}</div>',
+                        unsafe_allow_html=True)
+
+            # ── Open Interest Chart ───────────────────────────────────────────
+            st.markdown('<div class="slabel">Open Interest by Strike Price</div>', unsafe_allow_html=True)
+
+            # Filter near ATM strikes
+            atm_range  = cur * 0.15
+            calls_near = calls_df[(calls_df["strike"] >= cur - atm_range) &
+                                   (calls_df["strike"] <= cur + atm_range)]
+            puts_near  = puts_df[(puts_df["strike"]  >= cur - atm_range) &
+                                  (puts_df["strike"]  <= cur + atm_range)]
+
+            fig_oi = go.Figure()
+            fig_oi.add_trace(go.Bar(
+                x=calls_near["strike"], y=calls_near["openInterest"],
+                name="Call OI", marker_color=GREEN, opacity=0.8,
+            ))
+            fig_oi.add_trace(go.Bar(
+                x=puts_near["strike"], y=puts_near["openInterest"],
+                name="Put OI", marker_color=RED, opacity=0.8,
+            ))
+            fig_oi.add_vline(
+                x=cur, line_color=AMBER, line_dash="dash", line_width=2,
+            )
+            fig_oi.add_annotation(
+                x=cur, y=1, xref="x", yref="paper",
+                text=f"CMP: {cur:.1f}", showarrow=False,
+                font=dict(color=AMBER, size=10), xanchor="left",
+            )
+            fig_oi.update_layout(barmode="group")
+            th(fig_oi, h=350, title="Open Interest — Calls vs Puts (Near ATM strikes)")
+            st.plotly_chart(fig_oi, use_container_width=True, config={"displayModeBar": False})
+
+            # ── IV Smile Chart ────────────────────────────────────────────────
+            st.markdown('<div class="slabel">Implied Volatility Smile</div>', unsafe_allow_html=True)
+            fig_iv = go.Figure()
+            fig_iv.add_trace(go.Scatter(
+                x=calls_near["strike"], y=calls_near["impliedVolatility"],
+                line=dict(color=GREEN, width=2),
+                mode="lines+markers", marker=dict(size=6),
+                name="Call IV %",
+            ))
+            fig_iv.add_trace(go.Scatter(
+                x=puts_near["strike"], y=puts_near["impliedVolatility"],
+                line=dict(color=RED, width=2),
+                mode="lines+markers", marker=dict(size=6),
+                name="Put IV %",
+            ))
+            fig_iv.add_vline(x=cur, line_color=AMBER, line_dash="dash", line_width=1.5)
+            th(fig_iv, h=300, title="IV Smile — Implied Volatility across Strike Prices")
+            fig_iv.update_yaxes(title_text="IV %")
+            st.plotly_chart(fig_iv, use_container_width=True, config={"displayModeBar": False})
+
+            # ── Options Chain Table ───────────────────────────────────────────
+            st.markdown('<div class="slabel">Full Options Chain</div>', unsafe_allow_html=True)
+
+            tab_calls, tab_puts = st.tabs(["📗 Calls", "📕 Puts"])
+
+            with tab_calls:
+                calls_display = calls_df.rename(columns={
+                    "strike":"Strike","lastPrice":"Last Price",
+                    "bid":"Bid","ask":"Ask","volume":"Volume",
+                    "openInterest":"Open Interest",
+                    "impliedVolatility":"IV %","inTheMoney":"ITM"
+                })
+                # Highlight ITM rows
+                st.dataframe(
+                    calls_display.style.apply(
+                        lambda row: [f"background-color: {'rgba(0,204,102,.08)' if row.get('ITM', False) else ''}" for _ in row],
+                        axis=1
+                    ),
+                    use_container_width=True, hide_index=True, height=350
+                )
+
+            with tab_puts:
+                puts_display = puts_df.rename(columns={
+                    "strike":"Strike","lastPrice":"Last Price",
+                    "bid":"Bid","ask":"Ask","volume":"Volume",
+                    "openInterest":"Open Interest",
+                    "impliedVolatility":"IV %","inTheMoney":"ITM"
+                })
+                st.dataframe(
+                    puts_display.style.apply(
+                        lambda row: [f"background-color: {'rgba(255,51,85,.08)' if row.get('ITM', False) else ''}" for _ in row],
+                        axis=1
+                    ),
+                    use_container_width=True, hide_index=True, height=350
+                )
+
+            # ── Max Pain ──────────────────────────────────────────────────────
+            st.markdown('<div class="slabel">Max Pain Analysis</div>', unsafe_allow_html=True)
+
+            try:
+                all_strikes = sorted(set(calls_df["strike"].tolist() + puts_df["strike"].tolist()))
+                pain = []
+                for s in all_strikes:
+                    call_pain = calls_df[calls_df["strike"] < s].apply(
+                        lambda r: (s - r["strike"]) * r["openInterest"], axis=1).sum()
+                    put_pain  = puts_df[puts_df["strike"]  > s].apply(
+                        lambda r: (r["strike"] - s) * r["openInterest"], axis=1).sum()
+                    pain.append(call_pain + put_pain)
+
+                max_pain_idx   = pain.index(min(pain))
+                max_pain_price = all_strikes[max_pain_idx]
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    mp_diff = ((max_pain_price - cur) / cur * 100)
+                    mp_col  = "up" if mp_diff >= 0 else "dn"
+                    ar      = "▲" if mp_diff >= 0 else "▼"
+                    st.markdown(f"""<div class="kpi {mp_col}">
+                        <div class="klabel">Max Pain Strike</div>
+                        <div class="kval">{max_pain_price:.0f}</div>
+                        <div class="ksub">{ar} {abs(mp_diff):.1f}% from CMP · Options expire worthless here</div>
+                    </div>""", unsafe_allow_html=True)
+                with c2:
+                    st.markdown(f"""<div class="sig {'bl' if mp_diff>=0 else 'br'}">
+                        <strong>Max Pain = {max_pain_price:.0f}</strong><br>
+                        Price tends to gravitate toward max pain at expiry.
+                        {"Stock may rise toward " if mp_diff>=0 else "Stock may fall toward "}
+                        {max_pain_price:.0f} by {selected_exp}.
+                    </div>""", unsafe_allow_html=True)
+
+                # Pain chart
+                fig_pain = go.Figure()
+                fig_pain.add_trace(go.Scatter(
+                    x=all_strikes, y=pain,
+                    line=dict(color=ACCENT, width=2),
+                    fill="tozeroy",
+                    fillcolor=f"{'rgba(91,127,255,.07)' if DARK else 'rgba(51,85,238,.05)'}",
+                    name="Total Pain",
+                ))
+                fig_pain.add_vline(x=max_pain_price, line_color=GREEN, line_dash="dash", line_width=2)
+                fig_pain.add_annotation(
+                    x=max_pain_price, y=1, xref="x", yref="paper",
+                    text=f"Max Pain: {max_pain_price:.0f}",
+                    showarrow=False, font=dict(color=GREEN, size=10), xanchor="left"
+                )
+                fig_pain.add_vline(x=cur, line_color=AMBER, line_dash="dot", line_width=1.5)
+                th(fig_pain, h=280, title="Max Pain Chart — Where options expire worthless")
+                st.plotly_chart(fig_pain, use_container_width=True, config={"displayModeBar": False})
+            except:
+                st.info("Max pain calculation not available for this expiry.")
+
 # Footer
 st.markdown(f"""
 <div style='margin-top:28px;border-top:1px solid {BORDER};padding-top:10px;
 font-family:IBM Plex Mono;font-size:.55rem;color:{MUTED};letter-spacing:.1em'>
-MARKETLENS · DATA VIA YAHOO FINANCE · EDUCATIONAL USE ONLY · @PRASHANT MESHRAM
+MARKETLENS · DATA VIA YAHOO FINANCE · EDUCATIONAL USE ONLY · NOT FINANCIAL ADVICE
 </div>""", unsafe_allow_html=True)
