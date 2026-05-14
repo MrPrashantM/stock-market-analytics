@@ -3,5 +3,5 @@ pandas
 numpy
 plotly
 yfinance
-openpyxlscikit-learn 
-scikit-learn 
+scikit-learn
+openpyxl
