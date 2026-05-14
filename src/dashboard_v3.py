@@ -26,7 +26,13 @@ st.set_page_config(
 
 # ── Theme state ───────────────────────────────────────────────────────────────
 if "theme" not in st.session_state:
-    st.session_state.theme = "light"   # default = light (more readable)
+    st.session_state.theme = "light"
+
+if "auto_refresh" not in st.session_state:
+    st.session_state.auto_refresh = False
+
+if "refresh_interval" not in st.session_state:
+    st.session_state.refresh_interval = 60
 
 # ── Sidebar (theme toggle first) ──────────────────────────────────────────────
 with st.sidebar:
@@ -38,6 +44,33 @@ with st.sidebar:
         if st.button(label, help="Toggle dark / light"):
             st.session_state.theme = "dark" if st.session_state.theme == "light" else "light"
             st.rerun()
+
+    # ── Auto Refresh Controls ─────────────────────────────────────────────────
+    st.markdown("---")
+    rc1, rc2 = st.columns([2,1])
+    with rc1:
+        auto_refresh = st.toggle("🔴 Live Refresh", value=st.session_state.auto_refresh)
+        st.session_state.auto_refresh = auto_refresh
+    with rc2:
+        if auto_refresh:
+            st.markdown(f"""
+            <div style='background:{"#1a2a1a" if st.session_state.theme=="dark" else "#e8f8e8"};
+            border:1px solid {"#00cc66" if st.session_state.theme=="dark" else "#00aa44"};
+            border-radius:4px; padding:4px 8px; text-align:center;
+            font-family:IBM Plex Mono; font-size:.6rem; color:{"#00cc66" if st.session_state.theme=="dark" else "#008844"};
+            letter-spacing:.1em;'>
+            ● LIVE
+            </div>""", unsafe_allow_html=True)
+
+    if auto_refresh:
+        refresh_interval = st.select_slider(
+            "Refresh every",
+            options=[30, 60, 120, 300],
+            value=st.session_state.refresh_interval,
+            format_func=lambda x: f"{x}s" if x < 60 else f"{x//60}m"
+        )
+        st.session_state.refresh_interval = refresh_interval
+        st.caption(f"Next refresh in {refresh_interval}s")
 
 DARK = st.session_state.theme == "dark"
 
@@ -323,6 +356,60 @@ st.markdown(f"""<div class="krow">
   <div class="kpi wa"><div class="klabel">Volatility</div><div class="kval">{vol:.2f}%</div>
     <div class="ksub">20D rolling std</div></div>
 </div>""", unsafe_allow_html=True)
+
+# ── Live Ticker Tape ──────────────────────────────────────────────────────────
+@st.cache_data(ttl=60)
+def fetch_ticker_tape():
+    """Fetch quick prices for ticker tape"""
+    tape_stocks = {
+        "RELIANCE.NS":"RELIANCE","TCS.NS":"TCS","HDFCBANK.NS":"HDFC",
+        "INFY.NS":"INFY","AAPL":"AAPL","MSFT":"MSFT","NVDA":"NVDA","TSLA":"TSLA"
+    }
+    items = []
+    for tk, short in tape_stocks.items():
+        try:
+            d = yf.Ticker(tk).history(period="2d")
+            if len(d) >= 2:
+                c = d["Close"].iloc[-1]
+                p = d["Close"].iloc[-2]
+                chg = (c-p)/p*100
+                items.append((short, c, chg))
+        except: pass
+    return items
+
+tape_items = fetch_ticker_tape()
+if tape_items:
+    tape_html = " &nbsp;&nbsp;·&nbsp;&nbsp; ".join([
+        f"<span style='color:{GREEN if chg>=0 else RED}'>"
+        f"<b>{nm}</b> {price:.1f} "
+        f"{'▲' if chg>=0 else '▼'}{abs(chg):.2f}%</span>"
+        for nm, price, chg in tape_items
+    ])
+    st.markdown(f"""
+    <div style='background:{SURF2};border:1px solid {BORDER};border-radius:4px;
+    padding:8px 16px;margin-bottom:16px;overflow:hidden;white-space:nowrap;'>
+    <span style='font-family:IBM Plex Mono;font-size:.72rem;color:{MUTED};
+    letter-spacing:.05em;'>
+    📡 &nbsp; {tape_html}
+    </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ── Auto Refresh Logic ────────────────────────────────────────────────────────
+if st.session_state.auto_refresh:
+    import time
+    refresh_interval = st.session_state.refresh_interval
+    # Show countdown
+    placeholder = st.empty()
+    with placeholder.container():
+        st.markdown(f"""
+        <div style='font-family:IBM Plex Mono;font-size:.6rem;color:{MUTED};
+        text-align:right;margin-bottom:4px;'>
+        🔄 Auto-refreshing every {refresh_interval}s · Last updated: {datetime.datetime.now().strftime('%H:%M:%S')}
+        </div>""", unsafe_allow_html=True)
+    time.sleep(refresh_interval)
+    st.cache_data.clear()
+    st.rerun()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 T1,T2,T3,T4,T5,T6,T7,T8,T9 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced","🎯  Patterns & Tools","🤖  ML Forecast"])
@@ -1509,7 +1596,6 @@ with T9:
         ))
 
     # Vertical line — forecast start
-    # Vertical line — forecast start
     last_date = d_base["Date"].iloc[-1]
     fig_ml.add_shape(type="line",
         x0=last_date, x1=last_date, y0=0, y1=1,
@@ -1578,5 +1664,5 @@ with T9:
 st.markdown(f"""
 <div style='margin-top:28px;border-top:1px solid {BORDER};padding-top:10px;
 font-family:IBM Plex Mono;font-size:.55rem;color:{MUTED};letter-spacing:.1em'>
-MARKETLENS · DATA VIA YAHOO FINANCE · EDUCATIONAL USE ONLY · NOT FINANCIAL ADVICE
+MARKETLENS · DATA VIA YAHOO FINANCE · EDUCATIONAL USE ONLY · @PRASHANT MESHRAM
 </div>""", unsafe_allow_html=True)
