@@ -3,6 +3,4 @@ pandas
 numpy
 plotly
 yfinance
-requests
-beautifulsoup4
-python-dateutilopenpyxl 
+openpyxl
