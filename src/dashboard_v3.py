@@ -325,7 +325,7 @@ st.markdown(f"""<div class="krow">
 </div>""", unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-T1,T2,T3,T4,T5,T6,T7,T8 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced","🎯  Patterns & Tools"])
+T1,T2,T3,T4,T5,T6,T7,T8,T9 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced","🎯  Patterns & Tools","🤖  ML Forecast"])
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TAB 1 — PRICE
@@ -1301,6 +1301,278 @@ with T8:
                 <strong>Trades to recover 1 loss: {trades_to_recover}</strong><br>
                 {"Great R:R! One win recovers multiple losses." if rr_ratio>=2 else "Consider improving R:R above 1:2 for consistent profitability."}
             </div>""", unsafe_allow_html=True)
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 9 — ML PRICE FORECAST
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+with T9:
+    from sklearn.linear_model import LinearRegression
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.preprocessing import MinMaxScaler
+    from sklearn.metrics import r2_score, mean_absolute_error
+    import warnings
+    warnings.filterwarnings("ignore")
+
+    st.markdown('<div class="slabel">🤖 ML Price Prediction — Next 30 Days</div>', unsafe_allow_html=True)
+    st.caption("Models trained on historical OHLCV + technical indicators. For educational purposes only.")
+
+    # ── Settings ──────────────────────────────────────────────────────────────
+    c1, c2 = st.columns(2)
+    with c1:
+        forecast_days = st.slider("Forecast Days", min_value=7, max_value=60, value=30, step=7)
+    with c2:
+        model_choice = st.radio("Model", ["Linear Regression", "Random Forest", "Both"], horizontal=True)
+
+    # ── Feature Engineering for ML ────────────────────────────────────────────
+    def prepare_features(df):
+        d = df.copy().dropna()
+        d["Day"]       = np.arange(len(d))
+        d["MA5"]       = d["Close"].rolling(5).mean()
+        d["MA10"]      = d["Close"].rolling(10).mean()
+        d["MA20"]      = d["Close"].rolling(20).mean()
+        d["STD10"]     = d["Close"].rolling(10).std()
+        d["MOM5"]      = d["Close"].diff(5)
+        d["MOM10"]     = d["Close"].diff(10)
+        d["ROC5"]      = d["Close"].pct_change(5) * 100
+        d["HL_Ratio"]  = (d["High"] - d["Low"]) / d["Close"]
+        d["OC_Ratio"]  = (d["Close"] - d["Open"]) / d["Open"]
+        d["Vol_MA10"]  = d["Volume"].rolling(10).mean()
+        d["RSI"]       = d["RSI"] if "RSI" in d.columns else 50
+        d = d.dropna()
+        features = ["Day","MA5","MA10","MA20","STD10","MOM5","MOM10",
+                    "ROC5","HL_Ratio","OC_Ratio","Vol_MA10","RSI"]
+        return d, features
+
+    def run_lr(df, forecast_days):
+        d, feats = prepare_features(df)
+        X = d[feats].values
+        y = d["Close"].values
+
+        scaler_x = MinMaxScaler()
+        scaler_y = MinMaxScaler()
+        X_sc = scaler_x.fit_transform(X)
+        y_sc = scaler_y.fit_transform(y.reshape(-1,1)).ravel()
+
+        # Train on 80%
+        split   = int(len(X_sc) * 0.8)
+        X_train, X_test = X_sc[:split], X_sc[split:]
+        y_train, y_test = y_sc[:split], y_sc[split:]
+
+        model = LinearRegression()
+        model.fit(X_train, y_train)
+
+        # Test metrics
+        y_pred_test = model.predict(X_test)
+        y_pred_inv  = scaler_y.inverse_transform(y_pred_test.reshape(-1,1)).ravel()
+        y_test_inv  = scaler_y.inverse_transform(y_test.reshape(-1,1)).ravel()
+        r2  = r2_score(y_test_inv, y_pred_inv)
+        mae = mean_absolute_error(y_test_inv, y_pred_inv)
+
+        # Full prediction
+        y_all_pred = scaler_y.inverse_transform(model.predict(X_sc).reshape(-1,1)).ravel()
+
+        # Future forecast
+        last_day   = d["Day"].iloc[-1]
+        last_feats = d[feats].iloc[-1].copy()
+        future_preds = []
+        for i in range(1, forecast_days + 1):
+            last_feats["Day"] = last_day + i
+            x_fut = scaler_x.transform(last_feats.values.reshape(1,-1))
+            pred  = scaler_y.inverse_transform(model.predict(x_fut).reshape(-1,1))[0,0]
+            future_preds.append(pred)
+            last_feats["MA5"] = np.mean([pred] + list(future_preds[-4:]))
+
+        future_dates = pd.date_range(d["Date"].iloc[-1] + pd.Timedelta(days=1),
+                                     periods=forecast_days, freq="B")
+        return d, y_all_pred, future_dates, future_preds, r2, mae
+
+    def run_rf(df, forecast_days):
+        d, feats = prepare_features(df)
+        X = d[feats].values
+        y = d["Close"].values
+
+        split   = int(len(X) * 0.8)
+        X_train, X_test = X[:split], X[split:]
+        y_train, y_test = y[:split], y[split:]
+
+        model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+        model.fit(X_train, y_train)
+
+        y_pred_test = model.predict(X_test)
+        r2  = r2_score(y_test, y_pred_test)
+        mae = mean_absolute_error(y_test, y_pred_test)
+        y_all_pred = model.predict(X)
+
+        # Future forecast
+        last_feats = d[feats].iloc[-1].copy()
+        last_day   = d["Day"].iloc[-1]
+        future_preds = []
+        for i in range(1, forecast_days + 1):
+            last_feats["Day"] = last_day + i
+            pred = model.predict(last_feats.values.reshape(1,-1))[0]
+            future_preds.append(pred)
+            last_feats["MA5"] = np.mean([pred] + list(future_preds[-4:]))
+
+        future_dates = pd.date_range(d["Date"].iloc[-1] + pd.Timedelta(days=1),
+                                     periods=forecast_days, freq="B")
+
+        # Feature importance
+        importance = pd.DataFrame({
+            "Feature": feats,
+            "Importance": model.feature_importances_
+        }).sort_values("Importance", ascending=False)
+
+        return d, y_all_pred, future_dates, future_preds, r2, mae, importance
+
+    # ── Run Models ────────────────────────────────────────────────────────────
+    with st.spinner("Training ML models... ⏳"):
+        results = {}
+        if model_choice in ["Linear Regression", "Both"]:
+            d_lr, pred_lr, fdates_lr, fpreds_lr, r2_lr, mae_lr = run_lr(df, forecast_days)
+            results["Linear Regression"] = {
+                "d": d_lr, "all_pred": pred_lr, "fdates": fdates_lr,
+                "fpreds": fpreds_lr, "r2": r2_lr, "mae": mae_lr,
+                "color": ACCENT
+            }
+        if model_choice in ["Random Forest", "Both"]:
+            d_rf, pred_rf, fdates_rf, fpreds_rf, r2_rf, mae_rf, feat_imp = run_rf(df, forecast_days)
+            results["Random Forest"] = {
+                "d": d_rf, "all_pred": pred_rf, "fdates": fdates_rf,
+                "fpreds": fpreds_rf, "r2": r2_rf, "mae": mae_rf,
+                "color": GREEN
+            }
+
+    # ── Model Metrics ─────────────────────────────────────────────────────────
+    st.markdown('<div class="slabel">Model Performance</div>', unsafe_allow_html=True)
+
+    metric_cols = st.columns(len(results) * 2)
+    col_idx = 0
+    for mname, res in results.items():
+        r2_col = "up" if res["r2"] > 0.85 else "wa" if res["r2"] > 0.7 else "dn"
+        with metric_cols[col_idx]:
+            st.markdown(f"""<div class="kpi nu">
+                <div class="klabel">{mname}</div>
+                <div class="kval" style="font-size:.9rem">{mname.split()[0]}</div>
+            </div>""", unsafe_allow_html=True)
+        with metric_cols[col_idx + 1]:
+            st.markdown(f"""<div class="kpi {r2_col}">
+                <div class="klabel">R² Score</div>
+                <div class="kval">{res['r2']:.3f}</div>
+                <div class="ksub">MAE: {res['mae']:.2f} · {"Excellent" if res['r2']>0.85 else "Good" if res['r2']>0.7 else "Fair"}</div>
+            </div>""", unsafe_allow_html=True)
+        col_idx += 2
+
+    # ── Forecast Chart ────────────────────────────────────────────────────────
+    st.markdown('<div class="slabel">Price Forecast Chart</div>', unsafe_allow_html=True)
+
+    fig_ml = go.Figure()
+
+    # Actual price
+    first_res = list(results.values())[0]
+    d_base    = first_res["d"]
+
+    fig_ml.add_trace(go.Scatter(
+        x=d_base["Date"], y=d_base["Close"],
+        line=dict(color=TEXT, width=1.5),
+        name="Actual Price", opacity=0.8,
+    ))
+
+    # Model predictions + forecast
+    for mname, res in results.items():
+        # Historical fit
+        fig_ml.add_trace(go.Scatter(
+            x=res["d"]["Date"], y=res["all_pred"],
+            line=dict(color=res["color"], width=1.2, dash="dot"),
+            name=f"{mname} (fit)", opacity=0.6,
+        ))
+
+        # Future forecast
+        fig_ml.add_trace(go.Scatter(
+            x=res["fdates"], y=res["fpreds"],
+            line=dict(color=res["color"], width=2.5, dash="dash"),
+            name=f"{mname} Forecast ({forecast_days}D)",
+            mode="lines+markers",
+            marker=dict(size=5),
+        ))
+
+        # Confidence band (±5% of forecast)
+        upper = [p * 1.05 for p in res["fpreds"]]
+        lower = [p * 0.95 for p in res["fpreds"]]
+        fig_ml.add_trace(go.Scatter(
+            x=list(res["fdates"]) + list(res["fdates"])[::-1],
+            y=upper + lower[::-1],
+            fill="toself",
+            fillcolor=f"{'rgba(91,127,255,.08)' if res['color']==ACCENT else 'rgba(0,204,102,.08)'}",
+            line=dict(color="rgba(0,0,0,0)"),
+            name=f"{mname} ±5% CI",
+            showlegend=True,
+        ))
+
+    # Vertical line — forecast start
+    # Vertical line — forecast start
+    last_date = d_base["Date"].iloc[-1]
+    fig_ml.add_shape(type="line",
+        x0=last_date, x1=last_date, y0=0, y1=1,
+        xref="x", yref="paper",
+        line=dict(color=AMBER, dash="dash", width=1.5),
+    )
+    fig_ml.add_annotation(
+        x=last_date, y=1, xref="x", yref="paper",
+        text="Forecast →", showarrow=False,
+        font=dict(color=AMBER, size=10), xanchor="left",
+    )
+
+    th(fig_ml, h=500, title=f"ML Price Forecast — Next {forecast_days} Trading Days")
+    st.plotly_chart(fig_ml, use_container_width=True, config={"displayModeBar": False})
+
+    # ── Forecast Table ────────────────────────────────────────────────────────
+    st.markdown('<div class="slabel">Forecast Values</div>', unsafe_allow_html=True)
+
+    forecast_table = {"Date": [str(d.date()) for d in list(results.values())[0]["fdates"]]}
+    for mname, res in results.items():
+        forecast_table[f"{mname} Price"] = [round(p, 2) for p in res["fpreds"]]
+        forecast_table[f"{mname} Change%"] = [
+            f"{((p - cur) / cur * 100):+.2f}%" for p in res["fpreds"]
+        ]
+
+    ft_df = pd.DataFrame(forecast_table)
+    st.dataframe(ft_df, use_container_width=True, hide_index=True)
+
+    # ── 30D Target Summary ────────────────────────────────────────────────────
+    st.markdown('<div class="slabel">30-Day Price Target Summary</div>', unsafe_allow_html=True)
+
+    sum_cols = st.columns(len(results))
+    for i, (mname, res) in enumerate(results.items()):
+        final_pred = res["fpreds"][-1]
+        chg        = ((final_pred - cur) / cur * 100)
+        col_c      = "up" if chg >= 0 else "dn"
+        ar         = "▲" if chg >= 0 else "▼"
+        with sum_cols[i]:
+            st.markdown(f"""<div class="kpi {col_c}">
+                <div class="klabel">{mname} — Day {forecast_days} Target</div>
+                <div class="kval">{final_pred:.2f}</div>
+                <div class="ksub">{ar} {abs(chg):.1f}% from current {cur:.2f}</div>
+            </div>""", unsafe_allow_html=True)
+
+    # ── Feature Importance (RF only) ──────────────────────────────────────────
+    if "Random Forest" in results:
+        st.markdown('<div class="slabel">Feature Importance — Random Forest</div>', unsafe_allow_html=True)
+        fig_fi = go.Figure(go.Bar(
+            x=feat_imp["Importance"],
+            y=feat_imp["Feature"],
+            orientation="h",
+            marker_color=PALETTE[:len(feat_imp)],
+        ))
+        th(fig_fi, h=320, title="Which features matter most for prediction?")
+        st.plotly_chart(fig_fi, use_container_width=True, config={"displayModeBar": False})
+
+    # ── Disclaimer ────────────────────────────────────────────────────────────
+    st.markdown(f"""<div class="sig bn">
+        <strong>⚠️ Important Disclaimer</strong><br>
+        ML models are trained on historical data and cannot predict future prices with certainty.
+        Stock markets are influenced by news, sentiment, and macroeconomic factors that models cannot capture.
+        This forecast is for <strong>educational purposes only</strong> — not financial advice.
+    </div>""", unsafe_allow_html=True)
 
 # Footer
 st.markdown(f"""
