@@ -2085,9 +2085,13 @@ with T11:
         ))
 
         fig_tree.update_layout(
-            **{k:v for k,v in BASE_LAYOUT.items() if k not in ["xaxis","yaxis"]},
-            height=550,
-            title=f"{'NSE' if 'India' in market_sel else 'US'} Market Treemap — Size = Market Cap · Color = % Change",
+            plot_bgcolor  = SURFACE,
+            paper_bgcolor = BG,
+            font          = dict(family="IBM Plex Mono", color=TEXT, size=11),
+            title_font    = dict(color=HEAD, size=13, family="Syne"),
+            margin        = dict(l=8, r=8, t=36, b=8),
+            height        = 550,
+            title         = f"{'NSE' if 'India' in market_sel else 'US'} Market Treemap — Size = Market Cap · Color = % Change",
         )
         st.plotly_chart(fig_tree, use_container_width=True, config={"displayModeBar": False})
 
