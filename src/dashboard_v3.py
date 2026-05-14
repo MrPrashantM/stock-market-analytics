@@ -1672,11 +1672,13 @@ with T10:
         try:
             t = yf.Ticker(tkr)
             exps = t.options
-            if not exps: return None, None, None
-            return t, exps, True
-        except: return None, None, None
+            if not exps: return []
+            return list(exps)
+        except: return []
 
-    tick_obj, expirations, has_options = fetch_options(ticker)
+    expirations = fetch_options(ticker)
+    has_options = len(expirations) > 0
+    tick_obj = yf.Ticker(ticker)
 
     if not has_options or not expirations:
         st.warning(f"⚠️ Options data not available for `{ticker}`. Try US stocks like `AAPL`, `MSFT`, `TSLA`, `NVDA`.")
