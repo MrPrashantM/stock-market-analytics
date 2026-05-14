@@ -2076,11 +2076,7 @@ with T11:
                     [1.0,  "#00aa44"],
                 ],
                 cmid      = 0,
-                showscale = True,
-                colorbar  = dict(
-                    title = dict(text="Change %", font=dict(color=TEXT)),
-                    tickfont = dict(color=TEXT),
-                ),
+                showscale = False,
             ),
             textinfo    = "text",
             hovertemplate = "<b>%{label}</b><br>Change: %{customdata:.2f}%<extra></extra>",
