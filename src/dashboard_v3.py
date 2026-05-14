@@ -2131,5 +2131,5 @@ with T11:
 st.markdown(f"""
 <div style='margin-top:28px;border-top:1px solid {BORDER};padding-top:10px;
 font-family:IBM Plex Mono;font-size:.55rem;color:{MUTED};letter-spacing:.1em'>
-MARKETLENS · DATA VIA YAHOO FINANCE · EDUCATIONAL USE ONLY · NOT FINANCIAL ADVICE
+MARKETLENS · DATA VIA YAHOO FINANCE · EDUCATIONAL USE ONLY · @PRASHANT MESHRAM
 </div>""", unsafe_allow_html=True)
