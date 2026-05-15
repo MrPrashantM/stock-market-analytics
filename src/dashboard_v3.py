@@ -412,7 +412,7 @@ if st.session_state.auto_refresh:
     st.rerun()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-T1,T2,T3,T4,T5,T6,T7,T8,T9,T10,T11 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced","🎯  Patterns & Tools","🤖  ML Forecast","📈  Options Chain","🌍  Sector Heatmap"])
+T1,T2,T3,T4,T5,T6,T7,T8,T9,T10,T11,T12 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced","🎯  Patterns & Tools","🤖  ML Forecast","📈  Options Chain","🌍  Sector Heatmap","📅  Earnings"])
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TAB 1 — PRICE
@@ -1672,13 +1672,11 @@ with T10:
         try:
             t = yf.Ticker(tkr)
             exps = t.options
-            if not exps: return []
-            return list(exps)
-        except: return []
+            if not exps: return None, None, None
+            return t, exps, True
+        except: return None, None, None
 
-    expirations = fetch_options(ticker)
-    has_options = len(expirations) > 0
-    tick_obj = yf.Ticker(ticker)
+    tick_obj, expirations, has_options = fetch_options(ticker)
 
     if not has_options or not expirations:
         st.warning(f"⚠️ Options data not available for `{ticker}`. Try US stocks like `AAPL`, `MSFT`, `TSLA`, `NVDA`.")
@@ -2076,7 +2074,12 @@ with T11:
                     [1.0,  "#00aa44"],
                 ],
                 cmid      = 0,
-                showscale = False,
+                showscale = True,
+                colorbar  = dict(
+                    title = "Change %",
+                    tickfont_color = TEXT,
+                    titlefont_color = TEXT,
+                ),
             ),
             textinfo    = "text",
             hovertemplate = "<b>%{label}</b><br>Change: %{customdata:.2f}%<extra></extra>",
@@ -2085,13 +2088,9 @@ with T11:
         ))
 
         fig_tree.update_layout(
-            plot_bgcolor  = SURFACE,
-            paper_bgcolor = BG,
-            font          = dict(family="IBM Plex Mono", color=TEXT, size=11),
-            title_font    = dict(color=HEAD, size=13, family="Syne"),
-            margin        = dict(l=8, r=8, t=36, b=8),
-            height        = 550,
-            title         = f"{'NSE' if 'India' in market_sel else 'US'} Market Treemap — Size = Market Cap · Color = % Change",
+            **{k:v for k,v in BASE_LAYOUT.items() if k not in ["xaxis","yaxis"]},
+            height=550,
+            title=f"{'NSE' if 'India' in market_sel else 'US'} Market Treemap — Size = Market Cap · Color = % Change",
         )
         st.plotly_chart(fig_tree, use_container_width=True, config={"displayModeBar": False})
 
@@ -2128,9 +2127,302 @@ with T11:
             df_sec["Change %"] = df_sec["Change %"].apply(lambda x: f"{x:+.2f}%")
             st.dataframe(df_sec, use_container_width=True, hide_index=True)
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 12 — EARNINGS CALENDAR
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+with T12:
+    st.markdown('<div class="slabel">📅 Earnings Calendar & Analysis</div>', unsafe_allow_html=True)
+
+    # ── Fetch earnings data ───────────────────────────────────────────────────
+    @st.cache_data(ttl=3600)
+    def fetch_earnings(tkr):
+        try:
+            t = yf.Ticker(tkr)
+            # Earnings history
+            hist = t.earnings_history if hasattr(t, 'earnings_history') else None
+            # Upcoming earnings date
+            cal  = t.calendar if hasattr(t, 'calendar') else None
+            # Quarterly earnings
+            qtr  = t.quarterly_income_stmt if hasattr(t, 'quarterly_income_stmt') else None
+            return hist, cal, qtr
+        except: return None, None, None
+
+    with st.spinner("Fetching earnings data..."):
+        earn_hist, earn_cal, qtr_stmt = fetch_earnings(ticker)
+
+    # ── Upcoming Earnings ─────────────────────────────────────────────────────
+    st.markdown('<div class="slabel">Upcoming Earnings Date</div>', unsafe_allow_html=True)
+
+    next_earn_date = None
+    if earn_cal is not None:
+        try:
+            if isinstance(earn_cal, dict):
+                next_earn_date = earn_cal.get("Earnings Date", [None])[0]
+            elif isinstance(earn_cal, pd.DataFrame) and "Earnings Date" in earn_cal.index:
+                next_earn_date = earn_cal.loc["Earnings Date"].iloc[0]
+        except: pass
+
+    if next_earn_date:
+        try:
+            ned  = pd.Timestamp(next_earn_date)
+            days = (ned - pd.Timestamp.now()).days
+            col  = "up" if days > 30 else "wa" if days > 7 else "dn"
+            st.markdown(f"""<div class="krow">
+              <div class="kpi {col}"><div class="klabel">Next Earnings</div>
+                <div class="kval" style="font-size:1rem">{ned.strftime('%d %b %Y')}</div>
+                <div class="ksub">{"In " + str(days) + " days" if days >= 0 else "Already passed"}</div></div>
+              <div class="kpi wa"><div class="klabel">Days Remaining</div>
+                <div class="kval">{max(days,0)}</div>
+                <div class="ksub">Trading days approx</div></div>
+              <div class="kpi nu"><div class="klabel">Stock</div>
+                <div class="kval" style="font-size:1rem">{ticker}</div>
+                <div class="ksub">Current: {cur:.2f}</div></div>
+            </div>""", unsafe_allow_html=True)
+        except:
+            st.info("Earnings date format could not be parsed.")
+    else:
+        st.info(f"Upcoming earnings date not available for `{ticker}`. Try US stocks like AAPL, MSFT.")
+
+    # ── Earnings History ──────────────────────────────────────────────────────
+    st.markdown('<div class="slabel">Earnings History — EPS Estimate vs Actual</div>', unsafe_allow_html=True)
+
+    if earn_hist is not None and not earn_hist.empty:
+        try:
+            eh = earn_hist.copy()
+            eh = eh.reset_index()
+
+            # Rename columns if needed
+            col_map = {}
+            for c in eh.columns:
+                cl = c.lower()
+                if "date" in cl:            col_map[c] = "Date"
+                elif "actual" in cl:        col_map[c] = "EPS Actual"
+                elif "estimate" in cl:      col_map[c] = "EPS Estimate"
+                elif "surprise" in cl and "percent" in cl: col_map[c] = "Surprise %"
+                elif "surprise" in cl:      col_map[c] = "Surprise"
+            eh = eh.rename(columns=col_map)
+
+            if "EPS Actual" in eh.columns and "EPS Estimate" in eh.columns:
+                eh = eh.dropna(subset=["EPS Actual","EPS Estimate"])
+                eh["Beat"] = eh["EPS Actual"] >= eh["EPS Estimate"]
+                eh["Surprise $"] = (eh["EPS Actual"] - eh["EPS Estimate"]).round(3)
+
+                # KPIs
+                beat_count = eh["Beat"].sum()
+                miss_count = len(eh) - beat_count
+                beat_rate  = beat_count / len(eh) * 100 if len(eh) > 0 else 0
+                avg_surp   = eh["Surprise $"].mean()
+
+                st.markdown(f"""<div class="krow">
+                  <div class="kpi up"><div class="klabel">Earnings Beats</div>
+                    <div class="kval">{beat_count}</div>
+                    <div class="ksub">Beat estimate</div></div>
+                  <div class="kpi dn"><div class="klabel">Earnings Misses</div>
+                    <div class="kval">{miss_count}</div>
+                    <div class="ksub">Missed estimate</div></div>
+                  <div class="kpi {'up' if beat_rate>=60 else 'wa' if beat_rate>=50 else 'dn'}">
+                    <div class="klabel">Beat Rate</div>
+                    <div class="kval">{beat_rate:.1f}%</div>
+                    <div class="ksub">Historical accuracy</div></div>
+                  <div class="kpi {'up' if avg_surp>=0 else 'dn'}"><div class="klabel">Avg Surprise</div>
+                    <div class="kval">{avg_surp:+.3f}</div>
+                    <div class="ksub">Avg EPS beat/miss</div></div>
+                </div>""", unsafe_allow_html=True)
+
+                # EPS Chart
+                fig_eps = go.Figure()
+
+                # EPS Estimate bars
+                fig_eps.add_trace(go.Bar(
+                    x=eh["Date"].astype(str) if "Date" in eh.columns else eh.index.astype(str),
+                    y=eh["EPS Estimate"],
+                    name="EPS Estimate",
+                    marker_color=MUTED, opacity=0.6,
+                ))
+
+                # EPS Actual bars
+                actual_colors = [GREEN if b else RED for b in eh["Beat"]]
+                fig_eps.add_trace(go.Bar(
+                    x=eh["Date"].astype(str) if "Date" in eh.columns else eh.index.astype(str),
+                    y=eh["EPS Actual"],
+                    name="EPS Actual",
+                    marker_color=actual_colors, opacity=0.85,
+                ))
+
+                fig_eps.update_layout(
+                    barmode="group",
+                    plot_bgcolor=SURFACE, paper_bgcolor=BG,
+                    font=dict(family="IBM Plex Mono", color=TEXT, size=11),
+                    title_font=dict(color=HEAD, size=13, family="Syne"),
+                    margin=dict(l=8, r=8, t=36, b=8),
+                    legend=dict(bgcolor=SURF2, bordercolor=BORDER, borderwidth=1,
+                                font_size=10, font_color=TEXT),
+                    xaxis=dict(gridcolor=GRID, linecolor=BORDER, tickcolor=MUTED),
+                    yaxis=dict(gridcolor=GRID, linecolor=BORDER, tickcolor=MUTED,
+                               title="EPS ($)"),
+                    height=350,
+                    title="EPS — Estimate vs Actual (🟢 Beat · 🔴 Miss)",
+                )
+                st.plotly_chart(fig_eps, use_container_width=True, config={"displayModeBar": False})
+
+                # Surprise chart
+                surp_colors = [GREEN if v >= 0 else RED for v in eh["Surprise $"]]
+                fig_surp = go.Figure(go.Bar(
+                    x=eh["Date"].astype(str) if "Date" in eh.columns else eh.index.astype(str),
+                    y=eh["Surprise $"],
+                    marker_color=surp_colors,
+                    text=[f"{v:+.3f}" for v in eh["Surprise $"]],
+                    textposition="outside",
+                    textfont_color=TEXT,
+                    name="EPS Surprise",
+                ))
+                fig_surp.add_hline(y=0, line_color=BORDER, line_width=1)
+                fig_surp.update_layout(
+                    plot_bgcolor=SURFACE, paper_bgcolor=BG,
+                    font=dict(family="IBM Plex Mono", color=TEXT, size=11),
+                    title_font=dict(color=HEAD, size=13, family="Syne"),
+                    margin=dict(l=8, r=8, t=36, b=8),
+                    xaxis=dict(gridcolor=GRID, linecolor=BORDER, tickcolor=MUTED),
+                    yaxis=dict(gridcolor=GRID, linecolor=BORDER, tickcolor=MUTED,
+                               title="Surprise ($)"),
+                    height=250,
+                    title="EPS Surprise — How much did company beat/miss?",
+                )
+                st.plotly_chart(fig_surp, use_container_width=True, config={"displayModeBar": False})
+
+                # Table
+                st.markdown('<div class="slabel">Earnings History Table</div>', unsafe_allow_html=True)
+                display_cols = [c for c in ["Date","EPS Estimate","EPS Actual","Surprise $","Beat"] if c in eh.columns]
+                eh_display = eh[display_cols].copy()
+                if "Date" in eh_display.columns:
+                    eh_display["Date"] = eh_display["Date"].astype(str)
+                if "Beat" in eh_display.columns:
+                    eh_display["Beat"] = eh_display["Beat"].map({True: "✅ Beat", False: "❌ Miss"})
+                st.dataframe(eh_display, use_container_width=True, hide_index=True)
+
+            else:
+                st.info("EPS data columns not found for this ticker.")
+        except Exception as e:
+            st.info(f"Could not parse earnings history. Try US stocks like AAPL, MSFT.")
+    else:
+        st.info("Earnings history not available. Try: `AAPL`, `MSFT`, `GOOGL`, `TSLA`")
+
+    # ── Post-Earnings Stock Reaction ──────────────────────────────────────────
+    st.markdown('<div class="slabel">Post-Earnings Stock Reaction</div>', unsafe_allow_html=True)
+
+    if earn_hist is not None and not earn_hist.empty:
+        try:
+            eh2 = earn_hist.reset_index()
+            reactions = []
+
+            for _, row in eh2.iterrows():
+                try:
+                    earn_date = pd.Timestamp(row.get("Earnings Date", row.get("Date", None)))
+                    if pd.isna(earn_date): continue
+
+                    # Price before and after earnings
+                    start = (earn_date - pd.Timedelta(days=5)).strftime("%Y-%m-%d")
+                    end   = (earn_date + pd.Timedelta(days=5)).strftime("%Y-%m-%d")
+                    hist_data = yf.Ticker(ticker).history(start=start, end=end)
+
+                    if len(hist_data) >= 2:
+                        pre_price  = hist_data["Close"].iloc[0]
+                        post_price = hist_data["Close"].iloc[-1]
+                        reaction   = (post_price - pre_price) / pre_price * 100
+                        reactions.append({
+                            "Date":     earn_date.strftime("%b %Y"),
+                            "Pre Price":  round(pre_price, 2),
+                            "Post Price": round(post_price, 2),
+                            "Reaction %": round(reaction, 2),
+                        })
+                except: continue
+
+            if reactions:
+                react_df = pd.DataFrame(reactions)
+                react_colors = [GREEN if v >= 0 else RED for v in react_df["Reaction %"]]
+
+                fig_react = go.Figure(go.Bar(
+                    x=react_df["Date"],
+                    y=react_df["Reaction %"],
+                    marker_color=react_colors,
+                    text=[f"{v:+.1f}%" for v in react_df["Reaction %"]],
+                    textposition="outside",
+                    textfont_color=TEXT,
+                ))
+                fig_react.add_hline(y=0, line_color=BORDER, line_width=1)
+                fig_react.update_layout(
+                    plot_bgcolor=SURFACE, paper_bgcolor=BG,
+                    font=dict(family="IBM Plex Mono", color=TEXT, size=11),
+                    title_font=dict(color=HEAD, size=13, family="Syne"),
+                    margin=dict(l=8, r=8, t=36, b=8),
+                    xaxis=dict(gridcolor=GRID, linecolor=BORDER, tickcolor=MUTED),
+                    yaxis=dict(gridcolor=GRID, linecolor=BORDER, tickcolor=MUTED,
+                               title="Price Change %"),
+                    height=280,
+                    title="Stock Price Reaction after Earnings (5-day window)",
+                )
+                st.plotly_chart(fig_react, use_container_width=True, config={"displayModeBar": False})
+                st.dataframe(react_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("Could not calculate post-earnings reactions.")
+        except:
+            st.info("Post-earnings reaction data not available.")
+
+    # ── Quarterly Revenue & Income ─────────────────────────────────────────────
+    st.markdown('<div class="slabel">Quarterly Revenue & Net Income</div>', unsafe_allow_html=True)
+
+    if qtr_stmt is not None and not qtr_stmt.empty:
+        try:
+            rev_row = None
+            inc_row = None
+            for idx in qtr_stmt.index:
+                idx_l = str(idx).lower()
+                if "total revenue" in idx_l or "revenue" in idx_l:
+                    rev_row = qtr_stmt.loc[idx]
+                if "net income" in idx_l:
+                    inc_row = qtr_stmt.loc[idx]
+
+            if rev_row is not None or inc_row is not None:
+                dates = [str(c)[:10] for c in qtr_stmt.columns]
+
+                fig_qtr = go.Figure()
+                if rev_row is not None:
+                    fig_qtr.add_trace(go.Bar(
+                        x=dates, y=rev_row.values / 1e9,
+                        name="Revenue (B)", marker_color=ACCENT, opacity=0.8,
+                    ))
+                if inc_row is not None:
+                    ni_colors = [GREEN if v >= 0 else RED for v in inc_row.values]
+                    fig_qtr.add_trace(go.Bar(
+                        x=dates, y=inc_row.values / 1e9,
+                        name="Net Income (B)", marker_color=ni_colors, opacity=0.8,
+                    ))
+
+                fig_qtr.update_layout(
+                    barmode="group",
+                    plot_bgcolor=SURFACE, paper_bgcolor=BG,
+                    font=dict(family="IBM Plex Mono", color=TEXT, size=11),
+                    title_font=dict(color=HEAD, size=13, family="Syne"),
+                    margin=dict(l=8, r=8, t=36, b=8),
+                    legend=dict(bgcolor=SURF2, bordercolor=BORDER, borderwidth=1,
+                                font_size=10, font_color=TEXT),
+                    xaxis=dict(gridcolor=GRID, linecolor=BORDER, tickcolor=MUTED),
+                    yaxis=dict(gridcolor=GRID, linecolor=BORDER, tickcolor=MUTED,
+                               title="Billions ($)"),
+                    height=320,
+                    title="Quarterly Revenue & Net Income (in Billions)",
+                )
+                st.plotly_chart(fig_qtr, use_container_width=True, config={"displayModeBar": False})
+            else:
+                st.info("Revenue/income rows not found in quarterly data.")
+        except:
+            st.info("Quarterly financials not available for this ticker.")
+    else:
+        st.info("Quarterly financial statements not available. Try US stocks.")
+
 # Footer
 st.markdown(f"""
 <div style='margin-top:28px;border-top:1px solid {BORDER};padding-top:10px;
 font-family:IBM Plex Mono;font-size:.55rem;color:{MUTED};letter-spacing:.1em'>
-MARKETLENS · DATA VIA YAHOO FINANCE · EDUCATIONAL USE ONLY · @PRASHANT MESHRAM
+MARKETLENS · DATA VIA YAHOO FINANCE · EDUCATIONAL USE ONLY · NOT FINANCIAL ADVICE
 </div>""", unsafe_allow_html=True)
