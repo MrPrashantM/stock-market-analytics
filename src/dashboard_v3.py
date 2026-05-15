@@ -412,7 +412,7 @@ if st.session_state.auto_refresh:
     st.rerun()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-T1,T2,T3,T4,T5,T6,T7,T8,T9,T10,T11,T12 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced","🎯  Patterns & Tools","🤖  ML Forecast","📈  Options Chain","🌍  Sector Heatmap","📅  Earnings"])
+T1,T2,T3,T4,T5,T6,T7,T8,T9,T10,T11,T12,T13,T14,T15 = st.tabs(["📊  Price","📉  Indicators","🏢  Fundamentals","🔄  Compare","💼  Portfolio","📰  News","⚡  Advanced","🎯  Patterns & Tools","🤖  ML Forecast","📈  Options Chain","🌍  Sector Heatmap","📅  Earnings","💹  Crypto & Forex","🔍  Screener","🔔  Alerts"])
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TAB 1 — PRICE
@@ -2076,9 +2076,8 @@ with T11:
                 cmid      = 0,
                 showscale = True,
                 colorbar  = dict(
-                    title = "Change %",
-                    tickfont_color = TEXT,
-                    titlefont_color = TEXT,
+                    title = dict(text="Change %"),
+                    tickfont = dict(color=TEXT),
                 ),
             ),
             textinfo    = "text",
@@ -2088,9 +2087,13 @@ with T11:
         ))
 
         fig_tree.update_layout(
-            **{k:v for k,v in BASE_LAYOUT.items() if k not in ["xaxis","yaxis"]},
-            height=550,
-            title=f"{'NSE' if 'India' in market_sel else 'US'} Market Treemap — Size = Market Cap · Color = % Change",
+            plot_bgcolor  = SURFACE,
+            paper_bgcolor = BG,
+            font          = dict(family="IBM Plex Mono", color=TEXT, size=11),
+            title_font    = dict(color=HEAD, size=13, family="Syne"),
+            margin        = dict(l=8, r=8, t=36, b=8),
+            height        = 550,
+            title         = f"{'NSE' if 'India' in market_sel else 'US'} Market Treemap — Size = Market Cap · Color = % Change",
         )
         st.plotly_chart(fig_tree, use_container_width=True, config={"displayModeBar": False})
 
@@ -2420,9 +2423,502 @@ with T12:
     else:
         st.info("Quarterly financial statements not available. Try US stocks.")
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 13 — CRYPTO & FOREX
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+with T13:
+    st.markdown('<div class="slabel">💹 Crypto & Forex Live Tracker</div>', unsafe_allow_html=True)
+
+    CRYPTO_LIST = {
+        "Bitcoin":  "BTC-USD", "Ethereum":  "ETH-USD",
+        "Solana":   "SOL-USD", "BNB":       "BNB-USD",
+        "XRP":      "XRP-USD", "Cardano":   "ADA-USD",
+        "Dogecoin": "DOGE-USD","Avalanche": "AVAX-USD",
+    }
+    FOREX_LIST = {
+        "USD/INR":  "USDINR=X", "EUR/INR":  "EURINR=X",
+        "GBP/INR":  "GBPINR=X", "JPY/INR":  "JPYINR=X",
+        "EUR/USD":  "EURUSD=X", "GBP/USD":  "GBPUSD=X",
+        "USD/JPY":  "USDJPY=X", "AUD/USD":  "AUDUSD=X",
+    }
+
+    @st.cache_data(ttl=60)
+    def fetch_live_prices(symbols_dict):
+        results = []
+        for name, sym in symbols_dict.items():
+            try:
+                d = yf.Ticker(sym).history(period="5d")
+                if len(d) >= 2:
+                    c = d["Close"].iloc[-1]
+                    p = d["Close"].iloc[-2]
+                    chg    = (c - p) / p * 100
+                    hi     = d["High"].max()
+                    lo     = d["Low"].min()
+                    vol    = d["Volume"].iloc[-1] if "Volume" in d.columns else 0
+                    results.append({
+                        "Name": name, "Symbol": sym,
+                        "Price": round(c, 4),
+                        "Change %": round(chg, 2),
+                        "5D High": round(hi, 4),
+                        "5D Low":  round(lo, 4),
+                        "Volume":  vol,
+                    })
+            except: pass
+        return results
+
+    # ── Crypto Section ────────────────────────────────────────────────────────
+    st.markdown('<div class="slabel">🪙 Cryptocurrency Prices</div>', unsafe_allow_html=True)
+
+    with st.spinner("Fetching crypto prices..."):
+        crypto_data = fetch_live_prices(CRYPTO_LIST)
+
+    if crypto_data:
+        # KPI strip
+        kpi_html = '<div class="krow">'
+        for c in crypto_data[:4]:
+            col_c = "up" if c["Change %"] >= 0 else "dn"
+            ar    = "▲" if c["Change %"] >= 0 else "▼"
+            kpi_html += f"""<div class="kpi {col_c}">
+                <div class="klabel">{c['Name']}</div>
+                <div class="kval" style="font-size:1.1rem">${c['Price']:,.2f}</div>
+                <div class="ksub">{ar} {abs(c['Change %']):.2f}% today</div>
+            </div>"""
+        kpi_html += '</div>'
+        st.markdown(kpi_html, unsafe_allow_html=True)
+
+        kpi_html2 = '<div class="krow">'
+        for c in crypto_data[4:]:
+            col_c = "up" if c["Change %"] >= 0 else "dn"
+            ar    = "▲" if c["Change %"] >= 0 else "▼"
+            kpi_html2 += f"""<div class="kpi {col_c}">
+                <div class="klabel">{c['Name']}</div>
+                <div class="kval" style="font-size:1.1rem">${c['Price']:,.4f}</div>
+                <div class="ksub">{ar} {abs(c['Change %']):.2f}% today</div>
+            </div>"""
+        kpi_html2 += '</div>'
+        st.markdown(kpi_html2, unsafe_allow_html=True)
+
+        # Crypto bar chart
+        crypto_df  = pd.DataFrame(crypto_data)
+        bar_colors = [GREEN if v >= 0 else RED for v in crypto_df["Change %"]]
+        fig_crypto = go.Figure(go.Bar(
+            x=crypto_df["Name"], y=crypto_df["Change %"],
+            marker_color=bar_colors,
+            text=[f"{v:+.2f}%" for v in crypto_df["Change %"]],
+            textposition="outside", textfont_color=TEXT,
+        ))
+        fig_crypto.add_hline(y=0, line_color=BORDER, line_width=1)
+        fig_crypto.update_layout(
+            plot_bgcolor=SURFACE, paper_bgcolor=BG,
+            font=dict(family="IBM Plex Mono", color=TEXT, size=11),
+            title_font=dict(color=HEAD, size=13, family="Syne"),
+            margin=dict(l=8, r=8, t=36, b=8),
+            xaxis=dict(gridcolor=GRID, linecolor=BORDER),
+            yaxis=dict(gridcolor=GRID, linecolor=BORDER, title="Change %"),
+            height=280, title="Crypto Performance — Today",
+        )
+        st.plotly_chart(fig_crypto, use_container_width=True, config={"displayModeBar": False})
+
+        # Crypto detail chart
+        st.markdown('<div class="slabel">Crypto Price Chart</div>', unsafe_allow_html=True)
+        sel_crypto = st.selectbox("Select Crypto", list(CRYPTO_LIST.keys()), label_visibility="collapsed")
+        sel_period = st.select_slider("Period", ["1mo","3mo","6mo","1y","2y"], value="1y", key="crypto_period")
+
+        @st.cache_data(ttl=300)
+        def fetch_crypto_chart(sym, per):
+            try:
+                d = yf.Ticker(sym).history(period=per)
+                d = d.reset_index()
+                d["Date"] = pd.to_datetime(d["Date"]).dt.tz_localize(None)
+                return d
+            except: return None
+
+        cd = fetch_crypto_chart(CRYPTO_LIST[sel_crypto], sel_period)
+        if cd is not None and not cd.empty:
+            cd["CumRet"] = (cd["Close"] / cd["Close"].iloc[0] - 1) * 100
+            fig_cd = go.Figure()
+            fig_cd.add_trace(go.Scatter(
+                x=cd["Date"], y=cd["Close"],
+                line=dict(color=AMBER, width=2),
+                fill="tozeroy",
+                fillcolor=f"{'rgba(255,170,0,.06)' if DARK else 'rgba(187,119,0,.05)'}",
+                name=sel_crypto,
+            ))
+            fig_cd.update_layout(
+                plot_bgcolor=SURFACE, paper_bgcolor=BG,
+                font=dict(family="IBM Plex Mono", color=TEXT, size=11),
+                title_font=dict(color=HEAD, size=13, family="Syne"),
+                margin=dict(l=8, r=8, t=36, b=8),
+                xaxis=dict(gridcolor=GRID, linecolor=BORDER),
+                yaxis=dict(gridcolor=GRID, linecolor=BORDER, title="Price (USD)"),
+                height=320, title=f"{sel_crypto} — {sel_period}",
+            )
+            st.plotly_chart(fig_cd, use_container_width=True, config={"displayModeBar": False})
+
+    # ── Forex Section ─────────────────────────────────────────────────────────
+    st.markdown('<div class="slabel">💱 Forex — Live Exchange Rates</div>', unsafe_allow_html=True)
+
+    with st.spinner("Fetching forex rates..."):
+        forex_data = fetch_live_prices(FOREX_LIST)
+
+    if forex_data:
+        kpi_fx = '<div class="krow">'
+        for f in forex_data:
+            col_c = "up" if f["Change %"] >= 0 else "dn"
+            ar    = "▲" if f["Change %"] >= 0 else "▼"
+            kpi_fx += f"""<div class="kpi {col_c}">
+                <div class="klabel">{f['Name']}</div>
+                <div class="kval" style="font-size:1.1rem">{f['Price']:,.4f}</div>
+                <div class="ksub">{ar} {abs(f['Change %']):.3f}%</div>
+            </div>"""
+        kpi_fx += '</div>'
+        st.markdown(kpi_fx, unsafe_allow_html=True)
+
+        forex_df   = pd.DataFrame(forex_data)
+        fx_colors  = [GREEN if v >= 0 else RED for v in forex_df["Change %"]]
+        fig_fx = go.Figure(go.Bar(
+            x=forex_df["Name"], y=forex_df["Change %"],
+            marker_color=fx_colors,
+            text=[f"{v:+.3f}%" for v in forex_df["Change %"]],
+            textposition="outside", textfont_color=TEXT,
+        ))
+        fig_fx.add_hline(y=0, line_color=BORDER, line_width=1)
+        fig_fx.update_layout(
+            plot_bgcolor=SURFACE, paper_bgcolor=BG,
+            font=dict(family="IBM Plex Mono", color=TEXT, size=11),
+            title_font=dict(color=HEAD, size=13, family="Syne"),
+            margin=dict(l=8, r=8, t=36, b=8),
+            xaxis=dict(gridcolor=GRID, linecolor=BORDER),
+            yaxis=dict(gridcolor=GRID, linecolor=BORDER, title="Change %"),
+            height=260, title="Forex — Today's Change %",
+        )
+        st.plotly_chart(fig_fx, use_container_width=True, config={"displayModeBar": False})
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 14 — STOCK SCREENER
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+with T14:
+    st.markdown('<div class="slabel">🔍 Stock Screener</div>', unsafe_allow_html=True)
+    st.caption("Filter stocks based on technical & fundamental criteria")
+
+    SCREEN_STOCKS = {
+        "🇮🇳 NSE Large Cap": [
+            "RELIANCE.NS","TCS.NS","HDFCBANK.NS","INFY.NS","WIPRO.NS",
+            "TATAMOTORS.NS","ADANIENT.NS","BAJFINANCE.NS","SUNPHARMA.NS",
+            "MARUTI.NS","HCLTECH.NS","ICICIBANK.NS","SBIN.NS","NTPC.NS",
+            "ONGC.NS","COALINDIA.NS","LTIM.NS","TECHM.NS","AXISBANK.NS",
+            "KOTAKBANK.NS","TITAN.NS","ASIANPAINT.NS","NESTLEIND.NS","ITC.NS",
+        ],
+        "🇺🇸 US Large Cap": [
+            "AAPL","MSFT","GOOGL","AMZN","NVDA","TSLA","META","NFLX",
+            "JPM","BAC","V","MA","JNJ","UNH","XOM","CVX","HD","WMT",
+            "DIS","PYPL","INTC","AMD","QCOM","ORCL","CRM",
+        ],
+    }
+
+    # ── Filters ───────────────────────────────────────────────────────────────
+    st.markdown('<div class="slabel">Set Filters</div>', unsafe_allow_html=True)
+
+    screen_market = st.radio("Stock Universe", list(SCREEN_STOCKS.keys()), horizontal=True)
+    fc1, fc2, fc3 = st.columns(3)
+
+    with fc1:
+        rsi_min, rsi_max = st.slider("RSI Range", 0, 100, (0, 100), step=5)
+        chg_min, chg_max = st.slider("Day Change % Range", -15.0, 15.0, (-15.0, 15.0), step=0.5)
+
+    with fc2:
+        ma_filter = st.selectbox("MA Filter", [
+            "None",
+            "Price > MA20 (Uptrend)",
+            "Price < MA20 (Downtrend)",
+            "MA20 > MA50 (Golden Cross)",
+            "MA20 < MA50 (Death Cross)",
+        ])
+        vol_filter = st.selectbox("Volume Filter", [
+            "None",
+            "Volume Spike (>2x avg)",
+            "High Volume (>1.5x avg)",
+        ])
+
+    with fc3:
+        sort_by = st.selectbox("Sort By", ["Change %", "RSI", "Volume", "Price"])
+        sort_asc = st.radio("Order", ["Descending", "Ascending"], horizontal=True)
+        max_results = st.slider("Max Results", 5, 25, 10)
+
+    run_screen = st.button("🔍 Run Screener", type="primary", use_container_width=True)
+
+    if run_screen:
+        tickers_to_screen = SCREEN_STOCKS[screen_market]
+        screen_results = []
+
+        prog = st.progress(0, text="Screening stocks...")
+        for idx, tk in enumerate(tickers_to_screen):
+            try:
+                d = yf.Ticker(tk).history(period="3mo")
+                if len(d) < 50:
+                    prog.progress((idx+1)/len(tickers_to_screen))
+                    continue
+
+                c    = d["Close"].iloc[-1]
+                p    = d["Close"].iloc[-2]
+                chg  = (c - p) / p * 100
+                vol  = d["Volume"].iloc[-1]
+                avgv = d["Volume"].rolling(20).mean().iloc[-1]
+
+                # RSI
+                delta = d["Close"].diff()
+                gain  = delta.clip(lower=0).rolling(14).mean()
+                loss  = (-delta.clip(upper=0)).rolling(14).mean()
+                rs    = gain / loss.replace(0, np.nan)
+                rsi_v = (100 - 100/(1+rs)).iloc[-1]
+
+                # MAs
+                ma20 = d["Close"].rolling(20).mean().iloc[-1]
+                ma50 = d["Close"].rolling(50).mean().iloc[-1]
+
+                # Apply filters
+                if not (rsi_min <= rsi_v <= rsi_max): 
+                    prog.progress((idx+1)/len(tickers_to_screen))
+                    continue
+                if not (chg_min <= chg <= chg_max):
+                    prog.progress((idx+1)/len(tickers_to_screen))
+                    continue
+                if ma_filter == "Price > MA20 (Uptrend)" and c <= ma20:
+                    prog.progress((idx+1)/len(tickers_to_screen))
+                    continue
+                if ma_filter == "Price < MA20 (Downtrend)" and c >= ma20:
+                    prog.progress((idx+1)/len(tickers_to_screen))
+                    continue
+                if ma_filter == "MA20 > MA50 (Golden Cross)" and ma20 <= ma50:
+                    prog.progress((idx+1)/len(tickers_to_screen))
+                    continue
+                if ma_filter == "MA20 < MA50 (Death Cross)" and ma20 >= ma50:
+                    prog.progress((idx+1)/len(tickers_to_screen))
+                    continue
+                if vol_filter == "Volume Spike (>2x avg)" and vol <= avgv * 2:
+                    prog.progress((idx+1)/len(tickers_to_screen))
+                    continue
+                if vol_filter == "High Volume (>1.5x avg)" and vol <= avgv * 1.5:
+                    prog.progress((idx+1)/len(tickers_to_screen))
+                    continue
+
+                screen_results.append({
+                    "Ticker":    tk.replace(".NS",""),
+                    "Price":     round(c, 2),
+                    "Change %":  round(chg, 2),
+                    "RSI":       round(rsi_v, 1),
+                    "MA20":      round(ma20, 2),
+                    "MA50":      round(ma50, 2),
+                    "Volume":    f"{vol/1e6:.1f}M",
+                    "vs MA20":   f"{((c-ma20)/ma20*100):+.1f}%",
+                    "Signal":    "🟢 Bull" if c > ma20 and rsi_v < 65 else "🔴 Bear" if c < ma20 and rsi_v > 35 else "⚪ Neutral",
+                })
+            except: pass
+            prog.progress((idx+1)/len(tickers_to_screen))
+
+        prog.empty()
+
+        if screen_results:
+            res_df = pd.DataFrame(screen_results)
+            sort_col = {"Change %":"Change %","RSI":"RSI","Volume":"Volume","Price":"Price"}.get(sort_by,"Change %")
+            if sort_col in res_df.columns:
+                try:
+                    res_df[sort_col] = pd.to_numeric(res_df[sort_col].astype(str).str.replace("%","").str.replace("M",""), errors="coerce")
+                    res_df = res_df.sort_values(sort_col, ascending=(sort_asc=="Ascending"))
+                except: pass
+
+            res_df = res_df.head(max_results)
+
+            st.markdown(f"""<div class="krow">
+              <div class="kpi nu"><div class="klabel">Stocks Screened</div>
+                <div class="kval">{len(tickers_to_screen)}</div></div>
+              <div class="kpi up"><div class="klabel">Passed Filters</div>
+                <div class="kval">{len(res_df)}</div></div>
+              <div class="kpi up"><div class="klabel">Bullish</div>
+                <div class="kval">{(res_df['Signal'].str.contains('Bull')).sum()}</div></div>
+              <div class="kpi dn"><div class="klabel">Bearish</div>
+                <div class="kval">{(res_df['Signal'].str.contains('Bear')).sum()}</div></div>
+            </div>""", unsafe_allow_html=True)
+
+            # Chart
+            bar_c = [GREEN if v else RED for v in res_df["Change %"] >= 0] if "Change %" in res_df.columns else [ACCENT]*len(res_df)
+            fig_sc = go.Figure(go.Bar(
+                x=res_df["Ticker"], y=res_df["Change %"],
+                marker_color=bar_c,
+                text=[f"{v:+.2f}%" for v in res_df["Change %"]],
+                textposition="outside", textfont_color=TEXT,
+            ))
+            fig_sc.add_hline(y=0, line_color=BORDER, line_width=1)
+            fig_sc.update_layout(
+                plot_bgcolor=SURFACE, paper_bgcolor=BG,
+                font=dict(family="IBM Plex Mono", color=TEXT, size=11),
+                title_font=dict(color=HEAD, size=13, family="Syne"),
+                margin=dict(l=8, r=8, t=36, b=8),
+                xaxis=dict(gridcolor=GRID, linecolor=BORDER),
+                yaxis=dict(gridcolor=GRID, linecolor=BORDER, title="Change %"),
+                height=300, title="Screener Results — Change %",
+            )
+            st.plotly_chart(fig_sc, use_container_width=True, config={"displayModeBar": False})
+            st.dataframe(res_df, use_container_width=True, hide_index=True)
+
+            # Export
+            csv = res_df.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Export Results CSV", csv,
+                               f"screener_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                               "text/csv")
+        else:
+            st.warning("No stocks matched your filters. Try relaxing the criteria.")
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 15 — PRICE ALERTS
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+with T15:
+    st.markdown('<div class="slabel">🔔 Price Alert System</div>', unsafe_allow_html=True)
+    st.caption("Set alerts for price levels, RSI, and technical conditions. Alerts are checked in this session.")
+
+    # Session state for alerts
+    if "alerts" not in st.session_state:
+        st.session_state.alerts = []
+    if "triggered_alerts" not in st.session_state:
+        st.session_state.triggered_alerts = []
+
+    # ── Add Alert ─────────────────────────────────────────────────────────────
+    st.markdown('<div class="slabel">Add New Alert</div>', unsafe_allow_html=True)
+
+    ac1, ac2, ac3, ac4 = st.columns(4)
+    with ac1:
+        alert_ticker = st.text_input("Ticker", value=ticker, key="alert_tk").upper().strip()
+    with ac2:
+        alert_type = st.selectbox("Alert Type", [
+            "Price Above", "Price Below",
+            "RSI Above 70 (Overbought)", "RSI Below 30 (Oversold)",
+            "Price crosses MA20", "Volume Spike (2x)",
+        ])
+    with ac3:
+        alert_value = st.number_input(
+            "Target Value",
+            value=float(round(cur * 1.05, 2)),
+            min_value=0.0, step=1.0,
+            disabled=("RSI" in alert_type or "MA" in alert_type or "Volume" in alert_type),
+        )
+    with ac4:
+        alert_note = st.text_input("Note (optional)", placeholder="e.g. Buy signal")
+
+    if st.button("➕ Add Alert", type="primary"):
+        new_alert = {
+            "id":       len(st.session_state.alerts) + 1,
+            "ticker":   alert_ticker,
+            "type":     alert_type,
+            "value":    alert_value,
+            "note":     alert_note,
+            "status":   "🟡 Active",
+            "created":  datetime.datetime.now().strftime("%H:%M:%S"),
+        }
+        st.session_state.alerts.append(new_alert)
+        st.success(f"✅ Alert added for {alert_ticker} — {alert_type}")
+
+    # ── Check Alerts ──────────────────────────────────────────────────────────
+    if st.session_state.alerts:
+        if st.button("🔄 Check All Alerts Now"):
+            triggered = []
+            for alert in st.session_state.alerts:
+                if alert["status"] == "✅ Triggered": continue
+                try:
+                    d = yf.Ticker(alert["ticker"]).history(period="5d")
+                    if d.empty: continue
+                    c    = d["Close"].iloc[-1]
+                    p    = d["Close"].iloc[-2]
+                    vol  = d["Volume"].iloc[-1]
+                    avgv = d["Volume"].rolling(5).mean().iloc[-1]
+
+                    # RSI
+                    delta = d["Close"].diff()
+                    gain  = delta.clip(lower=0).rolling(14).mean()
+                    loss  = (-delta.clip(upper=0)).rolling(14).mean()
+                    rs    = gain / loss.replace(0, np.nan)
+                    rsi_a = (100 - 100/(1+rs)).iloc[-1]
+
+                    # MA20
+                    ma20a = d["Close"].rolling(20).mean().iloc[-1]
+                    ma20p = d["Close"].rolling(20).mean().iloc[-2]
+
+                    fired = False
+                    if alert["type"] == "Price Above"      and c >= alert["value"]: fired = True
+                    elif alert["type"] == "Price Below"    and c <= alert["value"]: fired = True
+                    elif "RSI Above 70" in alert["type"]   and rsi_a >= 70:         fired = True
+                    elif "RSI Below 30" in alert["type"]   and rsi_a <= 30:         fired = True
+                    elif "MA20" in alert["type"]           and p < ma20p and c >= ma20a: fired = True
+                    elif "Volume Spike" in alert["type"]   and vol >= avgv * 2:     fired = True
+
+                    if fired:
+                        alert["status"] = "✅ Triggered"
+                        alert["triggered_at"] = datetime.datetime.now().strftime("%H:%M:%S")
+                        alert["current_price"] = round(c, 2)
+                        triggered.append(alert)
+                except: pass
+
+            if triggered:
+                st.balloons()
+                for t_alert in triggered:
+                    st.error(f"🔔 ALERT TRIGGERED! {t_alert['ticker']} — {t_alert['type']} @ {t_alert.get('current_price','N/A')} | Note: {t_alert['note']}")
+            else:
+                st.info("No alerts triggered yet. Prices haven't hit your targets.")
+
+        # ── Active Alerts ─────────────────────────────────────────────────────
+        st.markdown('<div class="slabel">Your Alerts</div>', unsafe_allow_html=True)
+
+        for i, alert in enumerate(st.session_state.alerts):
+            cls = "bl" if alert["status"] == "✅ Triggered" else "bn"
+            st.markdown(f"""<div class="sig {cls}">
+                <strong>{alert['status']} · {alert['ticker']} · {alert['type']}</strong>
+                {"· Target: " + str(alert['value']) if alert['value'] else ""}
+                {"· " + alert['note'] if alert['note'] else ""}
+                · Added: {alert['created']}
+                {"· Triggered at: " + alert.get('triggered_at','') + " @ " + str(alert.get('current_price','')) if alert['status']=='✅ Triggered' else ""}
+            </div>""", unsafe_allow_html=True)
+
+        # Clear button
+        col_x1, col_x2 = st.columns(2)
+        with col_x1:
+            if st.button("🗑️ Clear All Alerts"):
+                st.session_state.alerts = []
+                st.rerun()
+        with col_x2:
+            if st.button("🗑️ Clear Triggered Only"):
+                st.session_state.alerts = [a for a in st.session_state.alerts if a["status"] != "✅ Triggered"]
+                st.rerun()
+
+        # ── Alert Stats ───────────────────────────────────────────────────────
+        total_al  = len(st.session_state.alerts)
+        active_al = sum(1 for a in st.session_state.alerts if a["status"] == "🟡 Active")
+        trig_al   = sum(1 for a in st.session_state.alerts if a["status"] == "✅ Triggered")
+
+        st.markdown(f"""<div class="krow">
+          <div class="kpi nu"><div class="klabel">Total Alerts</div><div class="kval">{total_al}</div></div>
+          <div class="kpi wa"><div class="klabel">Active</div><div class="kval">{active_al}</div></div>
+          <div class="kpi up"><div class="klabel">Triggered</div><div class="kval">{trig_al}</div></div>
+        </div>""", unsafe_allow_html=True)
+
+    else:
+        st.info("No alerts set yet. Add your first alert above! 👆")
+
+    # ── Quick Alert Templates ─────────────────────────────────────────────────
+    st.markdown('<div class="slabel">Quick Alert Templates</div>', unsafe_allow_html=True)
+    templates = [
+        ("RSI Oversold", f"Set RSI < 30 alert on {ticker} — potential buy signal"),
+        ("5% Breakout",  f"Set price above {round(cur*1.05,2)} alert on {ticker}"),
+        ("5% Stop Loss", f"Set price below {round(cur*0.95,2)} alert on {ticker}"),
+        ("Volume Spike", f"Set volume spike alert on {ticker} — unusual activity"),
+    ]
+    t1c, t2c = st.columns(2)
+    for i, (title, desc) in enumerate(templates):
+        with (t1c if i % 2 == 0 else t2c):
+            st.markdown(f'<div class="sig bn"><strong>💡 {title}</strong><br>{desc}</div>',
+                        unsafe_allow_html=True)
+
 # Footer
 st.markdown(f"""
 <div style='margin-top:28px;border-top:1px solid {BORDER};padding-top:10px;
 font-family:IBM Plex Mono;font-size:.55rem;color:{MUTED};letter-spacing:.1em'>
-MARKETLENS · DATA VIA YAHOO FINANCE · EDUCATIONAL USE ONLY · NOT FINANCIAL ADVICE
+MARKETLENS · DATA VIA YAHOO FINANCE · EDUCATIONAL USE ONLY · @PRASHANT MUKUNDRAO MESHRAM
 </div>""", unsafe_allow_html=True)
